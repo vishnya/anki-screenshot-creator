@@ -362,7 +362,8 @@ startBtn.addEventListener("click", async () => {
   const meta = MODEL_DEFAULTS[provider] || MODEL_DEFAULTS.anthropic;
   if (meta.hasKey && !apiKeyInput.value.trim()) {
     showToast("Enter an API key first", true);
-    apiKeyInput.focus();
+    document.getElementById("model-details").open = true;
+    setTimeout(() => apiKeyInput.focus(), 50);
     return;
   }
 
