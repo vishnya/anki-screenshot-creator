@@ -1,16 +1,11 @@
 <h1 align="center">anki-fox</h1>
 
 <p align="center">
-
-```
-                        ┌───────────┐
-                        │   |\_/|   │
-                        │  /     \  │
-                        │ /_.o o,_\ │
-                        │    \@/    │
-                        └───────────┘
-```
-
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="fox-card-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="fox-card-light.png" />
+    <img alt="anki-fox logo" src="fox-card-light.png" width="180" />
+  </picture>
 </p>
 
 Take a screenshot of anything — a textbook, slide, diagram — and get Anki flashcards automatically. Works with Claude, GPT-4o, Gemini, Groq, or any local model.
