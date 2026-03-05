@@ -4,7 +4,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="fox-cards-all-dark.png" />
     <source media="(prefers-color-scheme: light)" srcset="fox-cards-all-light.png" />
-    <img alt="anki-fox logo" src="fox-cards-all-light.png" width="640" />
+    <img alt="anki-fox logo" src="fox-cards-all-light.png" width="100%" />
   </picture>
 </p>
 
