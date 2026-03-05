@@ -1,0 +1,257 @@
+import json
+import queue
+import threading
+import time
+from pathlib import Path
+
+from flask import Flask, Response, jsonify, request, send_from_directory
+from PIL import Image
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+
+import config as cfg
+import models
+
+ANKICONNECT_URL = "http://localhost:8765"
+SCREENSHOTS_DIR = Path.home() / "AnkiFox" / "incoming"
+BASE_DIR        = Path(__file__).parent
+
+app = Flask(
+    __name__,
+    template_folder=str(BASE_DIR / "web" / "templates"),
+    static_folder=str(BASE_DIR / "web" / "static"),
+)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+# ── SSE broadcast ────────────────────────────────────────────────────────────────
+_sse_subscribers: list[queue.Queue] = []
+_sse_lock = threading.Lock()
+
+# ── Recent cards (kept in memory, newest-first) ──────────────────────────────────
+_recent_cards: list[dict] = []
+_recent_lock  = threading.Lock()
+
+
+def _push_event(data: dict):
+    with _sse_lock:
+        dead = []
+        for q in _sse_subscribers:
+            try:
+                q.put_nowait(data)
+            except queue.Full:
+                dead.append(q)
+        for q in dead:
+            _sse_subscribers.remove(q)
+
+
+# ── AnkiConnect helper ────────────────────────────────────────────────────────────
+def _ankiconnect(action: str, **params):
+    import requests
+    payload  = json.dumps({"action": action, "version": 6, "params": params})
+    response = requests.post(ANKICONNECT_URL, data=payload, timeout=5)
+    result   = response.json()
+    if result.get("error"):
+        raise Exception(f"AnkiConnect error: {result['error']}")
+    return result["result"]
+
+
+# ── Watchdog ──────────────────────────────────────────────────────────────────────
+class ScreenshotHandler(FileSystemEventHandler):
+    def on_created(self, event):
+        if event.is_directory or not event.src_path.endswith(".png"):
+            return
+        path = event.src_path
+        time.sleep(0.5)  # let screencapture finish writing
+
+        # Validate screenshot — tiny images are usually cancelled selections
+        try:
+            with Image.open(path) as img:
+                w, h = img.size
+            if w < 50 or h < 50:
+                _push_event({"type": "error", "message": f"Screenshot too small ({w}x{h}) — looks like a cancelled selection. Skipping."})
+                return
+        except Exception:
+            pass  # if we can't read it, let later code handle the error
+
+        conf = cfg.load()
+        if not conf.get("session_active"):
+            return
+
+        deck = conf.get("deck", "").strip()
+        if not deck:
+            _push_event({"type": "error", "message": "No deck set — open localhost:5789 to configure."})
+            return
+
+        filename = Path(path).name
+        _push_event({"type": "progress", "message": f"Processing {filename}..."})
+
+        try:
+            cards = models.generate_cards(path, conf)
+            _push_event({"type": "progress", "message": f"{len(cards)} card(s) generated, adding to Anki..."})
+
+            result = _add_cards_to_anki(cards, path, deck)
+
+            with _recent_lock:
+                for card in reversed(cards):
+                    _recent_cards.insert(0, {
+                        "front": card["front"],
+                        "back":  card["back"],
+                        "deck":  deck,
+                        "ts":    time.time(),
+                    })
+                del _recent_cards[10:]  # keep last 10
+
+            msg = f"Added {result['added']} card(s) to '{deck}'"
+            if result["duplicates"]:
+                msg += f" ({result['duplicates']} duplicate(s) skipped)"
+
+            _push_event({
+                "type":    "done",
+                "message": msg,
+                "cards":   cards,
+            })
+        except Exception as e:
+            _push_event({"type": "error", "message": str(e)})
+
+
+def _add_cards_to_anki(cards: list[dict], image_path: str, deck: str) -> dict:
+    """Returns {"added": int, "duplicates": int}."""
+    existing = _ankiconnect("deckNames")
+    if deck not in existing:
+        _ankiconnect("createDeck", deck=deck)
+        _push_event({"type": "progress", "message": f"Created new deck '{deck}'"})
+
+    added = 0
+    duplicates = 0
+    for card in cards:
+        back = card["back"]
+        if card.get("is_image_card"):
+            fname = Path(image_path).name
+            b64   = models.encode_image(image_path)
+            _ankiconnect("storeMediaFile", filename=fname, data=b64)
+            back += f'<br><img src="{fname}">'
+
+        note = {
+            "deckName":  deck,
+            "modelName": "Basic",
+            "fields":    {"Front": card["front"], "Back": back},
+            "tags":      card.get("tags", []),
+            "options":   {"allowDuplicate": False},
+        }
+        try:
+            _ankiconnect("addNote", note=note)
+            added += 1
+        except Exception as e:
+            if "duplicate" not in str(e).lower():
+                raise
+            duplicates += 1
+    return {"added": added, "duplicates": duplicates}
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────────
+@app.route("/")
+def index():
+    return send_from_directory(str(BASE_DIR / "web" / "templates"), "index.html")
+
+
+@app.route("/api/decks")
+def api_decks():
+    try:
+        decks = _ankiconnect("deckNames")
+        return jsonify(sorted(decks))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 503
+
+
+@app.route("/api/config", methods=["GET"])
+def api_config_get():
+    return jsonify(cfg.load())
+
+
+@app.route("/api/config", methods=["POST"])
+def api_config_post():
+    data = request.get_json(force=True)
+    conf = cfg.load()
+    for key in ("deck", "model", "api_keys", "custom_prompt", "deck_prompts"):
+        if key in data:
+            conf[key] = data[key]
+    cfg.save(conf)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/session", methods=["GET"])
+def api_session():
+    conf = cfg.load()
+    return jsonify({"active": conf.get("session_active", False), "deck": conf.get("deck", "")})
+
+
+@app.route("/api/session/start", methods=["POST"])
+def api_session_start():
+    conf = cfg.load()
+    conf["session_active"] = True
+    cfg.save(conf)
+    return jsonify({"ok": True, "deck": conf.get("deck", "")})
+
+
+@app.route("/api/session/stop", methods=["POST"])
+def api_session_stop():
+    conf = cfg.load()
+    conf["session_active"] = False
+    cfg.save(conf)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/events")
+def api_events():
+    q = queue.Queue(maxsize=100)
+    with _sse_lock:
+        _sse_subscribers.append(q)
+
+    def stream():
+        try:
+            # Send recent cards immediately on connect
+            with _recent_lock:
+                snapshot = list(_recent_cards)
+            if snapshot:
+                yield f"data: {json.dumps({'type': 'recent', 'cards': snapshot})}\n\n"
+            # Stream live events
+            while True:
+                try:
+                    event = q.get(timeout=30)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except queue.Empty:
+                    yield 'data: {"type":"ping"}\n\n'
+        finally:
+            with _sse_lock:
+                try:
+                    _sse_subscribers.remove(q)
+                except ValueError:
+                    pass
+
+    return Response(
+        stream(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":        "keep-alive",
+        },
+    )
+
+
+# ── Startup ───────────────────────────────────────────────────────────────────────
+def _start_watchdog():
+    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    observer = Observer()
+    observer.schedule(ScreenshotHandler(), str(SCREENSHOTS_DIR), recursive=False)
+    observer.start()
+    return observer
+
+
+if __name__ == "__main__":
+    observer = _start_watchdog()
+    try:
+        app.run(host="127.0.0.1", port=5789, threaded=True, use_reloader=False)
+    finally:
+        observer.stop()
+        observer.join()

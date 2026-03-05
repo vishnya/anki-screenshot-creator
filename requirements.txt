@@ -1,0 +1,6 @@
+anthropic
+openai
+watchdog
+requests
+Pillow
+flask

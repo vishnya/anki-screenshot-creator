@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>anki-fox</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+  <pre class="fox-logo" aria-hidden="true">    /\   /\
+   (  o.o  )
+    > ^ <
+   /|     |\
+  (_|     |_)</pre>
+  <h1>anki-fox</h1>
+
+  <!-- Deck -->
+  <div class="field">
+    <label for="deck">Deck</label>
+    <div class="deck-row" id="deck-row">
+      <select id="deck">
+        <option value="">Loading decks…</option>
+      </select>
+      <button type="button" id="btn-new-deck" class="btn-icon" title="Create new deck">+ New</button>
+      <button type="button" id="btn-retry-decks" class="btn-icon btn-retry hidden" title="Retry connecting to Anki">Retry</button>
+    </div>
+    <div class="deck-new-row hidden" id="deck-new-row">
+      <input type="text" id="deck-new-input" placeholder="New deck name…" autocomplete="off">
+      <button type="button" id="btn-cancel-deck" class="btn-icon">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Model provider + name -->
+  <div class="field-row">
+    <div class="field">
+      <label for="provider">Provider</label>
+      <select id="provider">
+        <option value="anthropic">Claude (Anthropic)</option>
+        <option value="openai">GPT (OpenAI)</option>
+        <option value="groq">Groq</option>
+        <option value="gemini">Gemini (Google)</option>
+        <option value="custom">Custom endpoint (Ollama, LM Studio, …)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="model-name">Model name</label>
+      <input type="text" id="model-name" placeholder="model name" autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+
+  <!-- API key (hidden for custom) -->
+  <div class="field" id="field-api-key">
+    <label for="api-key" id="api-key-label">API Key</label>
+    <input type="password" id="api-key" placeholder="sk-..." autocomplete="off">
+  </div>
+
+  <!-- Base URL (only for custom) -->
+  <div class="field hidden" id="field-base-url">
+    <label for="base-url">Base URL</label>
+    <input type="url" id="base-url" placeholder="http://localhost:11434/v1" autocomplete="off" spellcheck="false">
+  </div>
+
+  <!-- Topic focus -->
+  <div class="field">
+    <label for="custom-prompt">Topic focus <span class="label-note">(optional — default prompt is already effective)</span></label>
+    <textarea id="custom-prompt" placeholder="Add specifics to steer the cards, e.g. &quot;Prioritise clinical applications over mechanisms&quot; or &quot;Focus on molecular biology terminology.&quot;"></textarea>
+    <div class="prompt-saved hidden" id="prompt-saved">
+      Saved for <span id="prompt-saved-deck"></span> · <button type="button" id="btn-clear-prompt">clear</button>
+    </div>
+  </div>
+
+  <!-- Session button -->
+  <button class="btn-primary" id="btn-start">Start Session</button>
+  <button class="btn-primary btn-stop hidden" id="btn-stop">Stop Session</button>
+
+  <!-- Active session banner -->
+  <div class="status-banner hidden" id="status-banner">
+    <span class="status-dot"></span>
+    <span id="status-text"></span>
+  </div>
+
+  <!-- Activity log -->
+  <ul class="activity-log hidden" id="activity-log"></ul>
+
+  <hr class="divider">
+
+  <!-- Recent cards -->
+  <div class="section-title">Recent Cards</div>
+  <ul class="cards-list" id="cards-list">
+    <li class="empty-state">No cards yet this session</li>
+  </ul>
+</div>
+
+<div id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
