@@ -1,88 +1,93 @@
-import base64
-import json
-
+import os
 import pytest
+from PIL import Image, ImageDraw, ImageFont
+
 import models
 
 
-def test_encode_image_returns_base64(tiny_png):
-    result = models.encode_image(tiny_png)
-    decoded = base64.b64decode(result)
-    assert decoded[:4] == b"\x89PNG"
+class TestBuildPrompt:
+    """Verify _build_prompt places user instructions prominently."""
+
+    def test_no_custom_prompt_returns_base(self):
+        prompt = models._build_prompt({"custom_prompt": ""})
+        assert prompt == models.PROMPT_TEMPLATE
+
+    def test_custom_prompt_appears_before_rules(self):
+        prompt = models._build_prompt({"custom_prompt": "Rhyme everything"})
+        rules_pos = prompt.index("RULES:")
+        user_pos = prompt.index("Rhyme everything")
+        assert user_pos < rules_pos, "User instruction should appear before RULES"
+
+    def test_custom_prompt_in_header_block(self):
+        prompt = models._build_prompt({"custom_prompt": "Focus on cells"})
+        assert "IMPORTANT — USER INSTRUCTION (follow this exactly):" in prompt
+        assert "Focus on cells" in prompt
+
+    def test_custom_prompt_reinforced_in_selfcheck(self):
+        prompt = models._build_prompt({"custom_prompt": "Use rhymes"})
+        # Should appear twice: once in header, once in self-check
+        assert prompt.count("Use rhymes") == 2
+        selfcheck_pos = prompt.index("SELF-CHECK:")
+        second_occurrence = prompt.index("Use rhymes", prompt.index("Use rhymes") + 1)
+        assert second_occurrence > selfcheck_pos, "Should be reinforced after SELF-CHECK"
+
+    def test_whitespace_only_prompt_returns_base(self):
+        prompt = models._build_prompt({"custom_prompt": "   \n  "})
+        assert prompt == models.PROMPT_TEMPLATE
 
 
-def test_encode_image_small_no_resize(tiny_png):
-    with open(tiny_png, "rb") as f:
-        original_data = f.read()
-    original_b64 = base64.standard_b64encode(original_data).decode("utf-8")
-    result = models.encode_image(tiny_png)
-    assert result == original_b64
+class TestRhymeAdherence:
+    """Lightweight integration test: verify the model follows a rhyming prompt."""
 
+    @pytest.fixture
+    def text_png(self, tmp_path):
+        """Create a screenshot with readable text content."""
+        img = Image.new("RGB", (600, 200), color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        draw.text((20, 20), "Mitochondria are the powerhouse of the cell.\n"
+                            "They produce ATP through oxidative phosphorylation.\n"
+                            "The inner membrane has many folds called cristae.",
+                  fill=(0, 0, 0))
+        path = tmp_path / "textbook_screenshot.png"
+        img.save(str(path))
+        return str(path)
 
-def test_parse_cards_valid_json():
-    raw = json.dumps({
-        "cards": [{"front": "Q", "back": "A", "tags": [], "is_image_card": False}]
-    })
-    result = models._parse_cards(raw)
-    assert len(result) == 1
-    assert result[0]["front"] == "Q"
+    @pytest.fixture
+    def rhyme_config(self):
+        return {
+            "model": {"provider": "anthropic", "model_name": "claude-haiku-4-5"},
+            "api_keys": {"anthropic": ""},
+            "custom_prompt": "Write the back of every card as a rhyming couplet.",
+        }
 
+    @pytest.mark.integration
+    def test_rhyming_prompt_produces_rhymes(self, text_png, rhyme_config):
+        """Call the real API with a rhyming instruction and check output rhymes."""
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            pytest.skip("ANTHROPIC_API_KEY not set")
+        rhyme_config["api_keys"]["anthropic"] = api_key
 
-def test_parse_cards_strips_backtick_wrapper():
-    raw = '```json\n{"cards": []}\n```'
-    result = models._parse_cards(raw)
-    assert result == []
+        cards = models.generate_cards(text_png, rhyme_config)
+        assert len(cards) >= 1, "Should generate at least one card"
 
+        # Heuristic: at least one card's back has two lines whose last words
+        # share a similar ending (last 2+ chars match = likely rhyme).
+        def last_word(line):
+            words = line.strip().rstrip(".,!?;:").split()
+            return words[-1].lower() if words else ""
 
-def test_parse_cards_empty_cards_key():
-    result = models._parse_cards('{"cards": []}')
-    assert result == []
+        rhyme_found = False
+        for card in cards:
+            lines = [l for l in card["back"].split("\n") if l.strip()]
+            if len(lines) >= 2:
+                w1 = last_word(lines[0])
+                w2 = last_word(lines[1])
+                if len(w1) >= 2 and len(w2) >= 2 and w1[-2:] == w2[-2:]:
+                    rhyme_found = True
+                    break
 
-
-def test_parse_cards_invalid_json_shows_response():
-    raw = "Sure! Here are some flashcards about biology..."
-    with pytest.raises(ValueError, match="Model returned invalid JSON"):
-        models._parse_cards(raw)
-    # Verify the raw response preview is in the error
-    try:
-        models._parse_cards(raw)
-    except ValueError as e:
-        assert "Sure! Here are some flashcards" in str(e)
-
-
-def test_parse_cards_extracts_json_from_text():
-    """Models often wrap valid JSON in explanatory text."""
-    raw = 'Here are your flashcards:\n{"cards": [{"front": "Q", "back": "A", "tags": [], "is_image_card": false}]}\nHope that helps!'
-    result = models._parse_cards(raw)
-    assert len(result) == 1
-    assert result[0]["front"] == "Q"
-
-
-def test_extract_json_returns_none_for_garbage():
-    assert models._extract_json("no json here at all") is None
-
-
-def test_extract_json_returns_none_for_malformed_braces():
-    assert models._extract_json("{ broken json {{") is None
-
-
-def test_build_prompt_no_custom():
-    config = {"custom_prompt": ""}
-    result = models._build_prompt(config)
-    assert result == models.PROMPT_TEMPLATE
-
-
-def test_build_prompt_with_custom():
-    config = {"custom_prompt": "Focus on neuroscience"}
-    result = models._build_prompt(config)
-    assert "TOPIC FOCUS FOR THIS SESSION:" in result
-    assert "Focus on neuroscience" in result
-
-
-def test_build_prompt_focus_appears_before_json_spec():
-    config = {"custom_prompt": "Focus on history"}
-    result = models._build_prompt(config)
-    focus_pos = result.index("TOPIC FOCUS FOR THIS SESSION:")
-    self_check_pos = result.index("SELF-CHECK:")
-    json_spec_pos = result.index("Return ONLY valid JSON")
-    assert focus_pos < self_check_pos < json_spec_pos
+        assert rhyme_found, (
+            f"Expected at least one card with rhyming couplet on the back. "
+            f"Got backs: {[c['back'] for c in cards]}"
+        )

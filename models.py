@@ -86,10 +86,16 @@ def _build_prompt(config: dict) -> str:
     custom = config.get("custom_prompt", "").strip()
     if not custom:
         return PROMPT_TEMPLATE
-    # Insert before SELF-CHECK so the focus is active during card writing,
-    # and the JSON format spec stays last (where it has strongest effect).
-    focus_block = f"TOPIC FOCUS FOR THIS SESSION:\n{custom}\n\n"
-    return PROMPT_TEMPLATE.replace("SELF-CHECK:", focus_block + "SELF-CHECK:", 1)
+    # Place the user instruction at the top (before RULES) for maximum weight,
+    # and reinforce it in the SELF-CHECK so the model verifies compliance.
+    header = f"IMPORTANT — USER INSTRUCTION (follow this exactly):\n{custom}\n\n"
+    check_extra = f" Also verify each card follows the user instruction: \"{custom}\""
+    prompt = PROMPT_TEMPLATE.replace("RULES:", header + "RULES:", 1)
+    prompt = prompt.replace(
+        "would a smart 16-year-old understand this immediately?",
+        "would a smart 16-year-old understand this immediately?" + check_extra,
+    )
+    return prompt
 
 
 def _parse_cards(raw: str) -> list[dict]:
