@@ -62,7 +62,10 @@ class TestRhymeAdherence:
 
     @pytest.mark.integration
     def test_rhyming_prompt_produces_rhymes(self, text_png, rhyme_config):
-        """Call the real API with a rhyming instruction and check output rhymes."""
+        """Generate cards with a rhyming instruction, then use a second LLM
+        call to judge whether the backs actually rhyme."""
+        import anthropic
+
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
             pytest.skip("ANTHROPIC_API_KEY not set")
@@ -71,23 +74,28 @@ class TestRhymeAdherence:
         cards = models.generate_cards(text_png, rhyme_config)
         assert len(cards) >= 1, "Should generate at least one card"
 
-        # Heuristic: at least one card's back has two lines whose last words
-        # share a similar ending (last 2+ chars match = likely rhyme).
-        def last_word(line):
-            words = line.strip().rstrip(".,!?;:").split()
-            return words[-1].lower() if words else ""
-
-        rhyme_found = False
-        for card in cards:
-            lines = [l for l in card["back"].split("\n") if l.strip()]
-            if len(lines) >= 2:
-                w1 = last_word(lines[0])
-                w2 = last_word(lines[1])
-                if len(w1) >= 2 and len(w2) >= 2 and w1[-2:] == w2[-2:]:
-                    rhyme_found = True
-                    break
-
-        assert rhyme_found, (
-            f"Expected at least one card with rhyming couplet on the back. "
-            f"Got backs: {[c['back'] for c in cards]}"
+        # Ask a second model to judge rhyming
+        backs = "\n---\n".join(
+            f"Card {i+1} back:\n{c['back']}" for i, c in enumerate(cards)
+        )
+        client = anthropic.Anthropic(api_key=api_key)
+        judge = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "You are a rhyme judge. The user asked for flashcard backs "
+                    "written as rhyming couplets. Below are the card backs produced. "
+                    "Does at least one card back contain a rhyming couplet "
+                    "(two lines whose ending words rhyme)?\n\n"
+                    f"{backs}\n\n"
+                    "Reply with ONLY 'yes' or 'no'."
+                ),
+            }],
+        )
+        verdict = judge.content[0].text.strip().lower()
+        assert verdict.startswith("yes"), (
+            f"Rhyme judge said '{verdict}'. "
+            f"Card backs: {[c['back'] for c in cards]}"
         )
