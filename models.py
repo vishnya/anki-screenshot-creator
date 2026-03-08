@@ -41,12 +41,14 @@ GOOD: front: "What is a model's vocabulary?" / back: "The fixed list of tokens i
 If the screenshot contains a DIAGRAM, CHART, or FIGURE:
 - Break the diagram into multiple cards, each testing one concept shown in the diagram.
 - CRITICAL: the reviewer will NOT see the diagram when studying the front of the card. The front MUST be a standalone factual question that makes perfect sense without any image. Extract specific facts, numbers, or relationships from the diagram and ask about those directly.
-- NEVER reference the chart, diagram, figure, graph, or image on the front. Do not use phrases like "in the chart", "the chart shows", "when looking at the chart", "what does the diagram illustrate", or "what types does the chart distinguish". The front must read as a normal knowledge question.
+- NEVER reference the chart, diagram, figure, graph, or image on the front. Do not use phrases like "in the chart", "the chart shows", "when looking at the chart", "what does the diagram illustrate", "what types does the chart distinguish", "according to this chart", or "according to the diagram". The front must read as a normal knowledge question.
 - Front: you can append "(Diagram)" at the end to signal a diagram is on the back.
 - DIAGRAM CARD EXAMPLES — study these carefully:
   BAD: "What does the 'LLM Parameter Evolution' chart show about how models changed from 2018 to 2026? (Diagram)" — references the chart as something the user is looking at.
   BAD: "When looking at a chart of LLM parameter evolution, what does it mean that the axis uses a log scale?" — the user cannot see any chart.
   BAD: "What are the two main types of LLM architectures the chart distinguishes between?" — references the chart.
+  BAD: "Roughly when did MoE architectures start appearing in LLMs, according to this chart?" — "according to this chart" references the image. Just remove it and add (Diagram).
+  GOOD: "Roughly when did Mixture-of-Experts (MoE) architectures start appearing in LLMs? (Diagram)" / "Around 2021-2022, with models like GLaM and Switch Transformer."
   GOOD: "How many parameters did GPT-2 have, and when was it introduced? (Diagram)" / "1.5 billion parameters, introduced in February 2019."
   GOOD: "What are the three stages of compilation? (Diagram)" / "Lexing, parsing, and code generation."
 - Back: a text explanation that fully answers the question. The diagram image is attached automatically, but the text must stand on its own.
