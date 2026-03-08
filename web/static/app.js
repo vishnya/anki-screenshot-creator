@@ -434,8 +434,6 @@ startBtn.addEventListener("click", async () => {
   if (data.ok) {
     config = { ...config, ...body, session_active: true };
     sessionActive = true;
-    activityLog.innerHTML = "";
-    activityLog.classList.add("hidden");
     updateSessionUI();
   }
 });
