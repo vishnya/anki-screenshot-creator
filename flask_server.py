@@ -2,6 +2,7 @@ import json
 import queue
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
@@ -31,9 +32,9 @@ _sse_lock = threading.Lock()
 _recent_cards: list[dict] = []
 _recent_lock  = threading.Lock()
 
-# ── Undo: note IDs from the last screenshot ──────────────────────────────────────
-_last_note_ids: list[int] = []
-_last_note_lock = threading.Lock()
+# ── Undo: batch_id → list of note IDs ─────────────────────────────────────────────
+_batches: dict[str, list[int]] = {}  # keeps last 10 batches
+_batches_lock = threading.Lock()
 
 
 def _push_event(data: dict):
@@ -94,14 +95,16 @@ class ScreenshotHandler(FileSystemEventHandler):
             _push_event({"type": "progress", "message": f"{len(cards)} card(s) generated, adding to Anki..."})
 
             result = _add_cards_to_anki(cards, path, deck)
+            batch_id = result["batch_id"]
 
             with _recent_lock:
                 for card in reversed(cards):
                     _recent_cards.insert(0, {
-                        "front": card["front"],
-                        "back":  card["back"],
-                        "deck":  deck,
-                        "ts":    time.time(),
+                        "front":    card["front"],
+                        "back":     card["back"],
+                        "deck":     deck,
+                        "ts":       time.time(),
+                        "batch_id": batch_id,
                     })
                 del _recent_cards[10:]  # keep last 10
 
@@ -110,9 +113,10 @@ class ScreenshotHandler(FileSystemEventHandler):
                 msg += f" ({result['duplicates']} duplicate(s) skipped)"
 
             _push_event({
-                "type":    "done",
-                "message": msg,
-                "cards":   cards,
+                "type":     "done",
+                "message":  msg,
+                "cards":    cards,
+                "batch_id": batch_id,
             })
         except Exception as e:
             _push_event({"type": "error", "message": str(e)})
@@ -153,11 +157,15 @@ def _add_cards_to_anki(cards: list[dict], image_path: str, deck: str) -> dict:
                 raise
             duplicates += 1
 
-    with _last_note_lock:
-        _last_note_ids.clear()
-        _last_note_ids.extend(note_ids)
+    batch_id = uuid.uuid4().hex[:8]
+    with _batches_lock:
+        _batches[batch_id] = note_ids
+        # Keep only last 10 batches
+        while len(_batches) > 10:
+            oldest = next(iter(_batches))
+            del _batches[oldest]
 
-    return {"added": added, "duplicates": duplicates}
+    return {"added": added, "duplicates": duplicates, "batch_id": batch_id}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────────
@@ -277,17 +285,19 @@ def api_models(provider):
 
 @app.route("/api/undo", methods=["POST"])
 def api_undo():
-    with _last_note_lock:
-        ids = list(_last_note_ids)
-        _last_note_ids.clear()
+    data = request.get_json(force=True) if request.data else {}
+    batch_id = data.get("batch_id", "")
+    if not batch_id:
+        return jsonify({"error": "No batch_id provided"}), 400
+    with _batches_lock:
+        ids = _batches.pop(batch_id, None)
     if not ids:
-        return jsonify({"error": "Nothing to undo"}), 400
+        return jsonify({"error": "Batch not found or already undone"}), 400
     try:
         _ankiconnect("deleteNotes", notes=ids)
-        # Also remove from recent cards list
         with _recent_lock:
-            del _recent_cards[:len(ids)]
-        _push_event({"type": "undo", "message": f"Undid {len(ids)} card(s)", "count": len(ids)})
+            _recent_cards[:] = [c for c in _recent_cards if c.get("batch_id") != batch_id]
+        _push_event({"type": "undo", "message": f"Undid {len(ids)} card(s)", "batch_id": batch_id})
         return jsonify({"ok": True, "deleted": len(ids)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

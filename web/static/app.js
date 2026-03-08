@@ -51,7 +51,6 @@ const stopBtn         = document.getElementById("btn-stop");
 const statusBanner    = document.getElementById("status-banner");
 const statusText      = document.getElementById("status-text");
 const cardsList       = document.getElementById("cards-list");
-const btnUndo         = document.getElementById("btn-undo");
 const activityLog     = document.getElementById("activity-log");
 const toast           = document.getElementById("toast");
 
@@ -448,22 +447,21 @@ stopBtn.addEventListener("click", async () => {
   updateSessionUI();
 });
 
-btnUndo.addEventListener("click", async () => {
-  btnUndo.disabled = true;
+async function undoBatch(batchId, btn) {
+  btn.disabled = true;
   try {
-    const r = await fetch("/api/undo", { method: "POST" });
+    const r = await fetch("/api/undo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ batch_id: batchId }),
+    });
     const data = await r.json();
-    if (r.ok) {
-      btnUndo.classList.add("hidden");
-    } else {
-      logActivity(data.error || "Undo failed", "error");
-    }
+    if (!r.ok) logActivity(data.error || "Undo failed", "error");
   } catch {
     logActivity("Undo failed — is Anki running?", "error");
-  } finally {
-    btnUndo.disabled = false;
+    btn.disabled = false;
   }
-});
+}
 
 // ── SSE ────────────────────────────────────────────────────────────────────────
 let _eventSource = null;
@@ -478,8 +476,8 @@ function connectSSE() {
 
     if (event.type === "ping")    return;
     if (event.type === "recent")  { renderCards(event.cards); return; }
-    if (event.type === "done")    { logActivity(event.message, "done"); if (event.cards?.length) { prependCards(event.cards); btnUndo.classList.remove("hidden"); } return; }
-    if (event.type === "undo")   { logActivity(event.message, "done"); btnUndo.classList.add("hidden"); renderCards([]); return; }
+    if (event.type === "done")    { logActivity(event.message, "done"); if (event.cards?.length) prependCards(event.cards, event.batch_id); return; }
+    if (event.type === "undo")   { logActivity(event.message, "done"); removeBatch(event.batch_id); return; }
     if (event.type === "error")   { logActivity(event.message, "error"); return; }
     if (event.type === "progress") { logActivity(event.message, "progress"); }
   };
@@ -492,20 +490,80 @@ function renderCards(cards) {
     cardsList.innerHTML = '<li class="empty-state">No cards yet this session</li>';
     return;
   }
-  cards.forEach(c => cardsList.appendChild(buildCardLi(c)));
+  // Group by batch_id, preserving order (newest first)
+  const seen = new Set();
+  for (const c of cards) {
+    const bid = c.batch_id;
+    if (bid && !seen.has(bid)) {
+      seen.add(bid);
+      const batchCards = cards.filter(x => x.batch_id === bid);
+      const header = document.createElement("li");
+      header.className = "batch-header";
+      header.dataset.batchId = bid;
+      const label = document.createElement("span");
+      label.className = "batch-label";
+      label.textContent = `${batchCards.length} card(s) added`;
+      const btn = document.createElement("button");
+      btn.className = "btn-undo";
+      btn.textContent = "Undo";
+      btn.addEventListener("click", () => undoBatch(bid, btn));
+      header.appendChild(label);
+      header.appendChild(btn);
+      cardsList.appendChild(header);
+      batchCards.forEach(bc => cardsList.appendChild(buildCardLi(bc)));
+    } else if (!bid) {
+      cardsList.appendChild(buildCardLi(c));
+    }
+  }
 }
 
-function prependCards(cards) {
+function prependCards(cards, batchId) {
   if (cardsList.querySelector(".empty-state")) cardsList.innerHTML = "";
   const deck = config?.deck || "";
-  cards.forEach(c => {
-    cardsList.prepend(buildCardLi({ front: c.front, back: c.back, deck, ts: Date.now() / 1000 }));
-  });
-  while (cardsList.children.length > 10) cardsList.removeChild(cardsList.lastChild);
+  // Insert batch header with undo button
+  if (batchId) {
+    const header = document.createElement("li");
+    header.className = "batch-header";
+    header.dataset.batchId = batchId;
+    const label = document.createElement("span");
+    label.className = "batch-label";
+    label.textContent = `${cards.length} card(s) added`;
+    const btn = document.createElement("button");
+    btn.className = "btn-undo";
+    btn.textContent = "Undo";
+    btn.addEventListener("click", () => undoBatch(batchId, btn));
+    header.appendChild(label);
+    header.appendChild(btn);
+    cardsList.prepend(header);
+  }
+  // Insert cards in reverse so first card ends up on top (just below header)
+  for (let i = cards.length - 1; i >= 0; i--) {
+    const c = cards[i];
+    const li = buildCardLi({ front: c.front, back: c.back, deck, ts: Date.now() / 1000, batch_id: batchId });
+    // Insert after the batch header if present
+    const header = batchId && cardsList.querySelector(`.batch-header[data-batch-id="${batchId}"]`);
+    if (header && header.nextSibling) {
+      cardsList.insertBefore(li, header.nextSibling);
+    } else if (header) {
+      cardsList.appendChild(li);
+    } else {
+      cardsList.prepend(li);
+    }
+  }
+  while (cardsList.children.length > 30) cardsList.removeChild(cardsList.lastChild);
+}
+
+function removeBatch(batchId) {
+  if (!batchId) return;
+  cardsList.querySelectorAll(`[data-batch-id="${batchId}"]`).forEach(el => el.remove());
+  if (!cardsList.children.length) {
+    cardsList.innerHTML = '<li class="empty-state">No cards yet this session</li>';
+  }
 }
 
 function buildCardLi(c) {
   const li = document.createElement("li");
+  if (c.batch_id) li.dataset.batchId = c.batch_id;
 
   // Dim cards older than an hour
   if (Date.now() / 1000 - c.ts > 3600) li.classList.add("card-old");
