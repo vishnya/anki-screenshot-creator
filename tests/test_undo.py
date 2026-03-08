@@ -241,6 +241,56 @@ class TestActivityLogPersistence:
         assert len(flask_server._activity_log) == 0
 
 
+class TestDeleteCard:
+    """POST /api/delete-card deletes a single note."""
+
+    def test_delete_single_card(self, flask_client, tmp_config, tiny_png, mock_ankiconnect):
+        flask_client.post("/api/config", json={"deck": "TestDeck"})
+        flask_client.post("/api/session/start")
+
+        fake_cards = [
+            {"front": "Q1", "back": "A1", "tags": [], "is_image_card": False},
+            {"front": "Q2", "back": "A2", "tags": [], "is_image_card": False},
+        ]
+        handler = ScreenshotHandler()
+        event = make_event(tiny_png)
+        with patch("flask_server.models.generate_cards", return_value=fake_cards), \
+             patch("time.sleep"):
+            handler.on_created(event)
+
+        assert len(flask_server._recent_cards) == 2
+        note_id = flask_server._recent_cards[0].get("note_id")
+        assert note_id is not None
+
+        resp = flask_client.post("/api/delete-card", json={"note_id": note_id})
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+        assert len(flask_server._recent_cards) == 1
+
+    def test_delete_card_removes_from_batch(self, flask_client, tmp_config, tiny_png, mock_ankiconnect):
+        flask_client.post("/api/config", json={"deck": "TestDeck"})
+        flask_client.post("/api/session/start")
+
+        fake_cards = [
+            {"front": "Q1", "back": "A1", "tags": [], "is_image_card": False},
+        ]
+        handler = ScreenshotHandler()
+        event = make_event(tiny_png)
+        with patch("flask_server.models.generate_cards", return_value=fake_cards), \
+             patch("time.sleep"):
+            handler.on_created(event)
+
+        bid = list(flask_server._batches.keys())[0]
+        note_id = flask_server._recent_cards[0]["note_id"]
+
+        flask_client.post("/api/delete-card", json={"note_id": note_id})
+        assert note_id not in flask_server._batches[bid]
+
+    def test_delete_card_no_note_id_returns_400(self, flask_client):
+        resp = flask_client.post("/api/delete-card", json={})
+        assert resp.status_code == 400
+
+
 class TestSessionSSEBroadcast:
     """Session start/stop push SSE events."""
 

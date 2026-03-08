@@ -473,7 +473,7 @@ function connectSSE() {
     const event = JSON.parse(e.data);
 
     if (event.type === "ping")    return;
-    if (event.type === "recent")  { renderCards(event.cards, event.undoable_batches); renderActivityLog(event.activity_log); return; }
+    if (event.type === "recent")  { renderCards(event.cards); renderActivityLog(event.activity_log, event.undoable_batches); return; }
     if (event.type === "session_start") {
       sessionActive = true;
       // Reload config so we pick up the new deck/model from whoever started the session
@@ -486,104 +486,82 @@ function connectSSE() {
       updateSessionUI();
       return;
     }
-    if (event.type === "done")    { logActivity(event.message, "done"); if (event.cards?.length) prependCards(event.cards, event.batch_id); return; }
+    if (event.type === "done")    { logActivity(event.message, "done", event.batch_id); if (event.cards?.length) prependCards(event.cards, event.batch_id); return; }
     if (event.type === "undo")   { logActivity(event.message, "done"); removeBatch(event.batch_id); return; }
+    if (event.type === "card_deleted") { removeCard(event.note_id); return; }
     if (event.type === "error")   { logActivity(event.message, "error"); return; }
     if (event.type === "progress") { logActivity(event.message, "progress"); }
   };
 }
 
 // ── Recent cards ───────────────────────────────────────────────────────────────
-function renderCards(cards, undoableBatches) {
+function renderCards(cards) {
   cardsList.innerHTML = "";
   if (!cards || !cards.length) {
-    cardsList.innerHTML = '<li class="empty-state">No cards yet this session</li>';
+    cardsList.innerHTML = '<li class="empty-state">No cards yet</li>';
     return;
   }
-  const undoSet = new Set(undoableBatches || []);
-  // Group by batch_id, preserving order (newest first)
-  const seen = new Set();
-  for (const c of cards) {
-    const bid = c.batch_id;
-    if (bid && !seen.has(bid)) {
-      seen.add(bid);
-      const batchCards = cards.filter(x => x.batch_id === bid);
-      const header = document.createElement("li");
-      header.className = "batch-header";
-      header.dataset.batchId = bid;
-      const label = document.createElement("span");
-      label.className = "batch-label";
-      label.textContent = `${batchCards.length} card(s) added`;
-      if (undoSet.has(bid)) {
-        const btn = document.createElement("button");
-        btn.className = "btn-undo";
-        btn.textContent = "Undo";
-        btn.addEventListener("click", () => undoBatch(bid, btn));
-        header.appendChild(label);
-        header.appendChild(btn);
-      } else {
-        header.appendChild(label);
-      }
-      cardsList.appendChild(header);
-      batchCards.forEach(bc => cardsList.appendChild(buildCardLi(bc)));
-    } else if (!bid) {
-      cardsList.appendChild(buildCardLi(c));
-    }
-  }
+  cards.forEach(c => cardsList.appendChild(buildCardLi(c)));
 }
 
 function prependCards(cards, batchId) {
   if (cardsList.querySelector(".empty-state")) cardsList.innerHTML = "";
   const deck = config?.deck || "";
-  // Insert batch header with undo button
-  if (batchId) {
-    const header = document.createElement("li");
-    header.className = "batch-header";
-    header.dataset.batchId = batchId;
-    const label = document.createElement("span");
-    label.className = "batch-label";
-    label.textContent = `${cards.length} card(s) added`;
-    const btn = document.createElement("button");
-    btn.className = "btn-undo";
-    btn.textContent = "Undo";
-    btn.addEventListener("click", () => undoBatch(batchId, btn));
-    header.appendChild(label);
-    header.appendChild(btn);
-    cardsList.prepend(header);
-  }
-  // Insert cards in reverse so first card ends up on top (just below header)
   for (let i = cards.length - 1; i >= 0; i--) {
     const c = cards[i];
-    const li = buildCardLi({ front: c.front, back: c.back, deck, ts: Date.now() / 1000, batch_id: batchId });
-    // Insert after the batch header if present
-    const header = batchId && cardsList.querySelector(`.batch-header[data-batch-id="${batchId}"]`);
-    if (header && header.nextSibling) {
-      cardsList.insertBefore(li, header.nextSibling);
-    } else if (header) {
-      cardsList.appendChild(li);
-    } else {
-      cardsList.prepend(li);
-    }
+    cardsList.prepend(buildCardLi({
+      front: c.front, back: c.back, deck, note_id: c.note_id,
+      ts: Date.now() / 1000, batch_id: batchId,
+    }));
   }
-  while (cardsList.children.length > 30) cardsList.removeChild(cardsList.lastChild);
+  while (cardsList.children.length > 20) cardsList.removeChild(cardsList.lastChild);
 }
 
 function removeBatch(batchId) {
   if (!batchId) return;
   cardsList.querySelectorAll(`[data-batch-id="${batchId}"]`).forEach(el => el.remove());
   if (!cardsList.children.length) {
-    cardsList.innerHTML = '<li class="empty-state">No cards yet this session</li>';
+    cardsList.innerHTML = '<li class="empty-state">No cards yet</li>';
+  }
+  // Disable the undo button in the activity log
+  const undoBtn = activityLog.querySelector(`.log-undo-btn[data-batch-id="${batchId}"]`);
+  if (undoBtn) { undoBtn.disabled = true; undoBtn.textContent = "undone"; }
+}
+
+function removeCard(noteId) {
+  if (!noteId) return;
+  const el = cardsList.querySelector(`[data-note-id="${noteId}"]`);
+  if (el) el.remove();
+  if (!cardsList.children.length) {
+    cardsList.innerHTML = '<li class="empty-state">No cards yet</li>';
+  }
+}
+
+async function deleteCard(noteId, li) {
+  try {
+    const r = await fetch("/api/delete-card", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note_id: noteId }),
+    });
+    if (!r.ok) {
+      const data = await r.json();
+      logActivity(data.error || "Delete failed", "error");
+    }
+  } catch {
+    logActivity("Delete failed — is Anki running?", "error");
   }
 }
 
 function buildCardLi(c) {
   const li = document.createElement("li");
   if (c.batch_id) li.dataset.batchId = c.batch_id;
+  if (c.note_id) li.dataset.noteId = c.note_id;
 
   // Dim cards older than an hour
   if (Date.now() / 1000 - c.ts > 3600) li.classList.add("card-old");
 
-  // Row 1: question + timestamp
+  // Row 1: question + delete button + timestamp
   const top = document.createElement("div");
   top.className = "card-top";
 
@@ -591,11 +569,21 @@ function buildCardLi(c) {
   front.className   = "card-front";
   front.textContent = c.front;
 
+  if (c.note_id) {
+    const del = document.createElement("button");
+    del.className = "btn-delete-card";
+    del.textContent = "\u00d7";
+    del.title = "Delete this card from Anki";
+    del.addEventListener("click", (e) => { e.stopPropagation(); deleteCard(c.note_id, li); });
+    top.appendChild(front);
+    top.appendChild(del);
+  } else {
+    top.appendChild(front);
+  }
+
   const ts = document.createElement("span");
   ts.className   = "card-ts";
   ts.textContent = reltime(c.ts);
-
-  top.appendChild(front);
   top.appendChild(ts);
   li.appendChild(top);
 
@@ -632,9 +620,9 @@ function reltime(ts) {
 }
 
 // ── Activity log ───────────────────────────────────────────────────────────
-function renderActivityLog(entries) {
+function renderActivityLog(entries, undoableBatches) {
   if (!entries || !entries.length) return;
-  activityLog.classList.remove("hidden");
+  const undoSet = new Set(undoableBatches || []);
   activityLog.innerHTML = "";
   // entries are newest-first from server
   for (const entry of entries) {
@@ -650,12 +638,21 @@ function renderActivityLog(entries) {
     msgSpan.textContent = entry.message;
     li.appendChild(tsSpan);
     li.appendChild(msgSpan);
+    // Add undo button to "done" entries with undoable batch
+    if (entry.type === "done" && entry.batch_id && undoSet.has(entry.batch_id)) {
+      const btn = document.createElement("button");
+      btn.className = "log-undo-btn";
+      btn.dataset.batchId = entry.batch_id;
+      btn.textContent = "undo";
+      btn.addEventListener("click", () => undoBatch(entry.batch_id, btn));
+      li.appendChild(btn);
+    }
     activityLog.appendChild(li);
   }
 }
 
-function logActivity(message, type = "progress") {
-  activityLog.classList.remove("hidden");
+function logActivity(message, type = "progress", batchId = null) {
+  if (activityLog.querySelector(".empty-state")) activityLog.innerHTML = "";
   const li = document.createElement("li");
   li.className = `log-${type}`;
   const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -667,6 +664,15 @@ function logActivity(message, type = "progress") {
   msgSpan.textContent = message;
   li.appendChild(tsSpan);
   li.appendChild(msgSpan);
+  // Add undo button for "done" entries with a batch_id
+  if (type === "done" && batchId) {
+    const btn = document.createElement("button");
+    btn.className = "log-undo-btn";
+    btn.dataset.batchId = batchId;
+    btn.textContent = "undo";
+    btn.addEventListener("click", () => undoBatch(batchId, btn));
+    li.appendChild(btn);
+  }
   activityLog.prepend(li);
   while (activityLog.children.length > 20) activityLog.removeChild(activityLog.lastChild);
 }

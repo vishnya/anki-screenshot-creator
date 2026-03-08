@@ -53,12 +53,15 @@ def _push_event(data: dict):
     # Persist log-worthy events for replay on reconnect
     etype = data.get("type", "")
     if etype in ("progress", "done", "error", "undo"):
+        entry = {
+            "message": data.get("message", ""),
+            "type":    etype,
+            "ts":      time.time(),
+        }
+        if "batch_id" in data:
+            entry["batch_id"] = data["batch_id"]
         with _activity_lock:
-            _activity_log.insert(0, {
-                "message": data.get("message", ""),
-                "type":    etype,
-                "ts":      time.time(),
-            })
+            _activity_log.insert(0, entry)
             del _activity_log[20:]  # keep last 20
 
     with _sse_lock:
@@ -128,8 +131,9 @@ class ScreenshotHandler(FileSystemEventHandler):
                         "deck":     deck,
                         "ts":       time.time(),
                         "batch_id": batch_id,
+                        "note_id":  card.get("note_id"),
                     })
-                del _recent_cards[10:]  # keep last 10
+                del _recent_cards[20:]  # keep last 20
 
             msg = f"Added {result['added']} card(s) to '{deck}'"
             if result["duplicates"]:
@@ -179,6 +183,7 @@ def _add_cards_to_anki(cards: list[dict], image_path: str, deck: str) -> dict:
             note_id = _ankiconnect("addNote", note=note)
             if note_id:
                 note_ids.append(note_id)
+                card["note_id"] = note_id
             added += 1
         except Exception as e:
             if "duplicate" not in str(e).lower():
@@ -327,6 +332,28 @@ def api_undo():
             _recent_cards[:] = [c for c in _recent_cards if c.get("batch_id") != batch_id]
         _push_event({"type": "undo", "message": f"Undid {len(ids)} card(s)", "batch_id": batch_id})
         return jsonify({"ok": True, "deleted": len(ids)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/delete-card", methods=["POST"])
+def api_delete_card():
+    data = request.get_json(force=True) if request.data else {}
+    note_id = data.get("note_id")
+    if not note_id:
+        return jsonify({"error": "No note_id provided"}), 400
+    try:
+        _ankiconnect("deleteNotes", notes=[note_id])
+        with _recent_lock:
+            _recent_cards[:] = [c for c in _recent_cards if c.get("note_id") != note_id]
+        # Also remove from batch tracking
+        with _batches_lock:
+            for bid, ids in _batches.items():
+                if note_id in ids:
+                    ids.remove(note_id)
+                    break
+        _push_event({"type": "card_deleted", "note_id": note_id})
+        return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
