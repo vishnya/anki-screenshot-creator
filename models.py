@@ -52,7 +52,7 @@ If the screenshot contains a DIAGRAM, CHART, or FIGURE:
   GOOD: "How many parameters did GPT-2 have, and when was it introduced? (Diagram)" / "1.5 billion parameters, introduced in February 2019."
   GOOD: "What are the three stages of compilation? (Diagram)" / "Lexing, parsing, and code generation."
 - Back: a text explanation that fully answers the question. The diagram image is attached automatically, but the text must stand on its own.
-- Set is_image_card: true on ONE card so the image gets attached. The other cards from the same diagram should be is_image_card: false.
+- Set is_image_card: true on EVERY card generated from a diagram so the image gets attached to all of them.
 - If the screenshot also contains regular text or paragraphs outside the diagram, generate additional cards for that content too.
 
 SELF-CHECK: before returning JSON, read each card and ask:
