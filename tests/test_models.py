@@ -69,55 +69,38 @@ class TestPromptAdherence:
         }
         return models.generate_cards(image_path, config)
 
-    def _judge(self, cards, criterion, api_key):
-        """Ask a second LLM whether the cards meet the given criterion.
-        Returns 'yes' or 'no'."""
-        import anthropic
-
-        formatted = "\n---\n".join(
-            f"Card {i+1}:\n  Front: {c['front']}\n  Back: {c['back']}"
-            for i, c in enumerate(cards)
-        )
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=50,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"You are judging flashcard output. The user's instruction was:\n"
-                    f"\"{criterion}\"\n\n"
-                    f"Here are the cards produced:\n{formatted}\n\n"
-                    f"Do the cards follow the user's instruction? "
-                    f"Reply with ONLY 'yes' or 'no'."
-                ),
-            }],
-        )
-        return resp.content[0].text.strip().lower()
-
     @pytest.mark.integration
-    def test_rhyme_prompt_followed(self, text_png, api_key):
-        """A casual 'rhyme everything' prompt — the kind a real user types —
-        should produce cards whose backs actually rhyme."""
-        prompt = "Rhyme everything you see here"
+    def test_spanish_prompt_followed(self, text_png, api_key):
+        """Custom prompt asking for Spanish backs — easy to verify deterministically."""
+        prompt = "Write all card backs in Spanish"
         cards = self._generate(text_png, api_key, prompt)
         assert len(cards) >= 1
 
-        verdict = self._judge(cards, prompt, api_key)
-        assert verdict.startswith("yes"), (
-            f"Judge said '{verdict}' for prompt '{prompt}'. "
+        # Deterministic check: at least half the cards should contain common Spanish words
+        spanish_markers = ("la", "el", "de", "las", "los", "es", "en", "del", "una", "son", "por", "que", "se")
+        spanish_count = sum(
+            1 for c in cards
+            if any(f" {w} " in f" {c['back'].lower()} " for w in spanish_markers)
+        )
+        assert spanish_count >= len(cards) // 2, (
+            f"Expected Spanish backs, but only {spanish_count}/{len(cards)} look Spanish. "
             f"Cards: {[(c['front'], c['back']) for c in cards]}"
         )
 
     @pytest.mark.integration
-    def test_no_rhyme_prompt_not_rhyming(self, text_png, api_key):
-        """Without a rhyming prompt, the judge should say cards do NOT rhyme.
-        This proves the judge actually discriminates."""
+    def test_no_spanish_prompt_not_spanish(self, text_png, api_key):
+        """Without a Spanish prompt, cards should be in English.
+        This proves the check actually discriminates."""
         cards = self._generate(text_png, api_key, "")
         assert len(cards) >= 1
 
-        verdict = self._judge(cards, "Rhyme everything you see here", api_key)
-        assert verdict.startswith("no"), (
-            f"Expected 'no' for plain cards, got '{verdict}'. "
+        spanish_markers = ("la", "el", "de", "las", "los", "es", "en", "del", "una", "son", "por", "que", "se")
+        spanish_count = sum(
+            1 for c in cards
+            if any(f" {w} " in f" {c['back'].lower()} " for w in spanish_markers)
+        )
+        # English cards shouldn't have many Spanish markers
+        assert spanish_count < len(cards) // 2, (
+            f"Expected English backs, but {spanish_count}/{len(cards)} look Spanish. "
             f"Cards: {[(c['front'], c['back']) for c in cards]}"
         )
