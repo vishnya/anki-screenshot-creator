@@ -111,8 +111,8 @@ def _build_prompt(config: dict) -> str:
     check_extra = f" Also verify each card follows the user instruction: \"{custom}\""
     prompt = PROMPT_TEMPLATE.replace("RULES:", header + "RULES:", 1)
     prompt = prompt.replace(
-        "would a smart 16-year-old understand this immediately?",
-        "would a smart 16-year-old understand this immediately?" + check_extra,
+        "Would a smart 16-year-old understand this immediately?",
+        "Would a smart 16-year-old understand this immediately?" + check_extra,
     )
     return prompt
 

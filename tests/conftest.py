@@ -16,8 +16,12 @@ import config as cfg_module
 def clear_flask_state():
     """Clear shared global state before and after each test."""
     flask_server._recent_cards.clear()
+    flask_server._activity_log.clear()
+    flask_server._batches.clear()
     yield
     flask_server._recent_cards.clear()
+    flask_server._activity_log.clear()
+    flask_server._batches.clear()
 
 
 @pytest.fixture
@@ -46,14 +50,19 @@ def tiny_png(tmp_path):
 
 @pytest.fixture
 def mock_ankiconnect():
+    _note_counter = [100000]
+
     def side_effect(action, **params):
         if action == "deckNames":
             return ["Deck1", "Deck2"]
         if action == "addNote":
-            return 12345
+            _note_counter[0] += 1
+            return _note_counter[0]
         if action == "createDeck":
             return None
         if action == "storeMediaFile":
+            return None
+        if action == "deleteNotes":
             return None
         return None
 
