@@ -418,6 +418,61 @@ textarea {
   padding: 16px 0;
 }
 
+/* ── Confirm dialog ── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.confirm-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  max-width: 340px;
+  width: 90%;
+}
+.confirm-box p {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--text);
+}
+.confirm-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 16px;
+  cursor: pointer;
+}
+.confirm-check input { margin: 0; cursor: pointer; }
+.confirm-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.confirm-cancel, .confirm-delete {
+  font-size: 13px;
+  padding: 6px 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: none;
+  color: var(--text);
+}
+.confirm-cancel:hover { border-color: var(--muted); }
+.confirm-delete {
+  background: var(--red, #e55);
+  border-color: var(--red, #e55);
+  color: #fff;
+}
+.confirm-delete:hover { opacity: 0.9; }
+
 /* ── Combobox (typeahead model selector) ── */
 .combobox {
   position: relative;

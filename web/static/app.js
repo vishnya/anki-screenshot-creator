@@ -445,7 +445,52 @@ stopBtn.addEventListener("click", async () => {
   updateSessionUI();
 });
 
+// ── Delete confirmation ────────────────────────────────────────────────────
+let _skipDeleteConfirm = false;
+
+function confirmDelete(message) {
+  if (_skipDeleteConfirm) return Promise.resolve(true);
+  return new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.className = "confirm-overlay";
+    const box = document.createElement("div");
+    box.className = "confirm-box";
+    const msg = document.createElement("p");
+    msg.textContent = message;
+    const checkLabel = document.createElement("label");
+    checkLabel.className = "confirm-check";
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    checkLabel.appendChild(check);
+    checkLabel.appendChild(document.createTextNode(" Don't ask again this session"));
+    const btns = document.createElement("div");
+    btns.className = "confirm-btns";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "confirm-cancel";
+    cancelBtn.textContent = "Cancel";
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "confirm-delete";
+    deleteBtn.textContent = "Delete";
+    btns.appendChild(cancelBtn);
+    btns.appendChild(deleteBtn);
+    box.appendChild(msg);
+    box.appendChild(checkLabel);
+    box.appendChild(btns);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    cancelBtn.addEventListener("click", () => { overlay.remove(); resolve(false); });
+    deleteBtn.addEventListener("click", () => {
+      if (check.checked) _skipDeleteConfirm = true;
+      overlay.remove();
+      resolve(true);
+    });
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) { overlay.remove(); resolve(false); } });
+  });
+}
+
 async function undoBatch(batchId, btn) {
+  const ok = await confirmDelete("Delete this batch of cards from Anki?");
+  if (!ok) return;
   btn.disabled = true;
   try {
     const r = await fetch("/api/undo", {
@@ -538,6 +583,8 @@ function removeCard(noteId) {
 }
 
 async function deleteCard(noteId, li) {
+  const ok = await confirmDelete("Delete this card from Anki?");
+  if (!ok) return;
   try {
     const r = await fetch("/api/delete-card", {
       method: "POST",
