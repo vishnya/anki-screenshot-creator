@@ -397,8 +397,7 @@ def api_events():
                 undoable = list(_batches.keys())
             with _activity_lock:
                 log_snapshot = list(_activity_log)
-            if snapshot or log_snapshot:
-                yield f"data: {json.dumps({'type': 'recent', 'cards': snapshot, 'undoable_batches': undoable, 'activity_log': log_snapshot})}\n\n"
+            yield f"data: {json.dumps({'type': 'recent', 'cards': snapshot, 'undoable_batches': undoable, 'activity_log': log_snapshot})}\n\n"
             # Stream live events
             while True:
                 try:
