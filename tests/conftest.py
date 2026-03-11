@@ -13,15 +13,20 @@ import config as cfg_module
 
 
 @pytest.fixture(autouse=True)
-def clear_flask_state():
+def clear_flask_state(tmp_path, monkeypatch):
     """Clear shared global state before and after each test."""
+    # Point state/queue files to tmp so tests don't pollute real state
+    monkeypatch.setattr(flask_server, "_STATE_FILE", tmp_path / "state.json")
+    monkeypatch.setattr(flask_server, "_QUEUE_FILE", tmp_path / "offline_queue.json")
     flask_server._recent_cards.clear()
     flask_server._activity_log.clear()
     flask_server._batches.clear()
+    flask_server._offline_queue.clear()
     yield
     flask_server._recent_cards.clear()
     flask_server._activity_log.clear()
     flask_server._batches.clear()
+    flask_server._offline_queue.clear()
 
 
 @pytest.fixture
@@ -64,6 +69,10 @@ def mock_ankiconnect():
             return None
         if action == "deleteNotes":
             return None
+        if action == "findNotes":
+            return []
+        if action == "notesInfo":
+            return []
         return None
 
     with patch("flask_server._ankiconnect", side_effect=side_effect) as mock:

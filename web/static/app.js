@@ -53,6 +53,8 @@ const statusText      = document.getElementById("status-text");
 const cardsList       = document.getElementById("cards-list");
 const activityLog     = document.getElementById("activity-log");
 const toast           = document.getElementById("toast");
+const offlineBanner   = document.getElementById("offline-banner");
+const offlineText     = document.getElementById("offline-text");
 
 // ── State ──────────────────────────────────────────────────────────────────────
 let config        = null;
@@ -389,11 +391,13 @@ function updateSessionUI() {
     statusBanner.querySelector(".status-dot").classList.add("pulse");
     statusText.textContent = `Session active — press ⌥⇧A to screenshot (deck: ${config?.deck || "?"})`;
     setFormDisabled(true);
+    startConnectivityPolling();
   } else {
     startBtn.classList.remove("hidden");
     stopBtn.classList.add("hidden");
     statusBanner.classList.add("hidden");
     setFormDisabled(false);
+    stopConnectivityPolling();
   }
 }
 
@@ -463,7 +467,7 @@ function confirmDelete(message) {
     const check = document.createElement("input");
     check.type = "checkbox";
     checkLabel.appendChild(check);
-    checkLabel.appendChild(document.createTextNode(" Don't ask again this session"));
+    checkLabel.appendChild(document.createTextNode(" Don't ask again"));
     const btns = document.createElement("div");
     btns.className = "confirm-btns";
     const cancelBtn = document.createElement("button");
@@ -522,9 +526,10 @@ function connectSSE() {
     const event = JSON.parse(e.data);
 
     if (event.type === "ping")    return;
-    if (event.type === "recent")  { renderCards(event.cards); renderActivityLog(event.activity_log); return; }
+    if (event.type === "recent")  { renderCards(event.cards); renderActivityLog(event.activity_log); _queueCount = event.queue_count || 0; updateOfflineBanner(); return; }
     if (event.type === "session_start") {
       sessionActive = true;
+      if (event.message) logActivity(event.message, "done");
       // Reload config so we pick up the new deck/model from whoever started the session
       fetch("/api/config").then(r => r.json()).then(c => { config = c; updateSessionUI(); });
       return;
@@ -532,12 +537,16 @@ function connectSSE() {
     if (event.type === "session_stop") {
       sessionActive = false;
       if (config) config.session_active = false;
+      if (event.message) logActivity(event.message, "progress");
       updateSessionUI();
       return;
     }
-    if (event.type === "done")    { logActivity(event.message, "done"); if (event.cards?.length) prependCards(event.cards, event.batch_id); return; }
+    if (event.type === "done")    { if (event.message) logActivity(event.message, "done"); if (event.cards?.length) prependCards(event.cards, event.batch_id); return; }
     if (event.type === "undo")   { logActivity(event.message, "done"); removeBatch(event.batch_id); return; }
     if (event.type === "card_deleted") { logActivity("Deleted card from Anki", "done"); removeCard(event.note_id); return; }
+    if (event.type === "offline_queued") { _isOffline = true; logActivity(event.message, "offline"); updateOfflineBanner(event.queue_count); return; }
+    if (event.type === "queue_update") { updateOfflineBanner(event.queue_count); return; }
+    if (event.type === "queue_clear")  { _isOffline = false; logActivity(event.message, "done"); updateOfflineBanner(0); return; }
     if (event.type === "error")   { logActivity(event.message, "error"); return; }
     if (event.type === "progress") { logActivity(event.message, "progress"); }
   };
@@ -623,7 +632,7 @@ function buildCardLi(c) {
   if (c.note_id) {
     const del = document.createElement("button");
     del.className = "btn-delete-card";
-    del.textContent = "\u00d7";
+    del.innerHTML = '<svg width="12" height="13" viewBox="0 0 12 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 3.5h9M4.5 3.5V2a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1.5M2.5 3.5l.5 8a.5.5 0 0 0 .5.5h5a.5.5 0 0 0 .5-.5l.5-8"/></svg>';
     del.title = "Delete this card from Anki";
     del.addEventListener("click", (e) => { e.stopPropagation(); deleteCard(c.note_id, li); });
     top.appendChild(front);
@@ -675,9 +684,10 @@ function renderActivityLog(entries) {
   if (!entries || !entries.length) return;
   activityLog.innerHTML = "";
   // entries are newest-first from server
+  const typeMap = { session_start: "done", session_stop: "progress", card_deleted: "done", offline_queued: "offline", queue_clear: "done" };
   for (const entry of entries) {
     const li = document.createElement("li");
-    li.className = `log-${entry.type}`;
+    li.className = `log-${typeMap[entry.type] || entry.type}`;
     const d = new Date(entry.ts * 1000);
     const ts = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const tsSpan = document.createElement("span");
@@ -707,6 +717,60 @@ function logActivity(message, type = "progress") {
   li.appendChild(msgSpan);
   activityLog.prepend(li);
   while (activityLog.children.length > 20) activityLog.removeChild(activityLog.lastChild);
+}
+
+// ── Offline detection ──────────────────────────────────────────────────────────
+let _isOffline = false;
+let _queueCount = 0;
+let _connectivityTimer = null;
+
+function updateOfflineBanner(count) {
+  if (count !== undefined) _queueCount = count;
+  if (_isOffline && _queueCount > 0) {
+    offlineText.textContent = `Offline — ${_queueCount} screenshot${_queueCount === 1 ? "" : "s"} queued, will process when back online`;
+    offlineBanner.classList.remove("hidden");
+  } else if (_isOffline) {
+    offlineText.textContent = "Offline — screenshots will be queued until you reconnect";
+    offlineBanner.classList.remove("hidden");
+  } else {
+    offlineBanner.classList.add("hidden");
+  }
+}
+
+async function checkConnectivity() {
+  // navigator.onLine is instant but only detects cable/wifi disconnect, not API reachability
+  if (!navigator.onLine) {
+    setOffline(true);
+    return;
+  }
+  try {
+    const res = await fetch("/api/connectivity");
+    const data = await res.json();
+    _queueCount = data.queue_count ?? _queueCount;
+    setOffline(!data.online);
+  } catch {
+    // Can't even reach our own server — not an internet issue, skip
+  }
+}
+
+function setOffline(offline) {
+  if (offline === _isOffline) return;
+  _isOffline = offline;
+  updateOfflineBanner();
+}
+
+// Check connectivity on browser online/offline events and periodically during session
+window.addEventListener("online",  () => checkConnectivity());
+window.addEventListener("offline", () => setOffline(true));
+
+function startConnectivityPolling() {
+  stopConnectivityPolling();
+  checkConnectivity();
+  _connectivityTimer = setInterval(checkConnectivity, 30000);
+}
+
+function stopConnectivityPolling() {
+  if (_connectivityTimer) { clearInterval(_connectivityTimer); _connectivityTimer = null; }
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────────

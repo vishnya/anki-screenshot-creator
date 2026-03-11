@@ -99,10 +99,37 @@ def encode_image(image_path: str) -> str:
     return base64.standard_b64encode(data).decode("utf-8")
 
 
+def _format_deck_context(cards: list[dict]) -> str:
+    """Format existing deck cards into a prompt section."""
+    if not cards:
+        return ""
+    lines = ["EXISTING CARDS IN THIS DECK (use as context — do NOT duplicate these):"]
+    for i, c in enumerate(cards, 1):
+        tags = ", ".join(c.get("tags", []))
+        line = f'{i}. Q: "{c["front"]}" / A: "{c["back"]}"'
+        if tags:
+            line += f"  [{tags}]"
+        lines.append(line)
+    lines.append("")
+    lines.append("Use these existing cards to:")
+    lines.append("- NEVER create a card that tests the same fact as an existing one, even if worded differently.")
+    lines.append("- Match the style, difficulty level, and tone of the existing cards.")
+    lines.append("- Assume the student already knows concepts covered by existing cards — build on that knowledge rather than re-explaining basics.")
+    lines.append("- Use the same tag conventions as existing cards.\n")
+    return "\n".join(lines)
+
+
 def _build_prompt(config: dict) -> str:
+    prompt = PROMPT_TEMPLATE
+
+    # Add deck context before RULES if available
+    deck_context = _format_deck_context(config.get("deck_context", []))
+    if deck_context:
+        prompt = prompt.replace("RULES:", deck_context + "RULES:", 1)
+
     custom = config.get("custom_prompt", "").strip()
     if not custom:
-        return PROMPT_TEMPLATE
+        return prompt
     # Place the user instruction at the top (before RULES) for maximum weight,
     # and reinforce it in the SELF-CHECK so the model verifies compliance.
     header = (
@@ -113,7 +140,7 @@ def _build_prompt(config: dict) -> str:
         f"rhyming cards even though the default rules say 'plain english').\n\n"
     )
     check_extra = f" Also verify each card follows the user instruction: \"{custom}\""
-    prompt = PROMPT_TEMPLATE.replace("RULES:", header + "RULES:", 1)
+    prompt = prompt.replace("RULES:", header + "RULES:", 1)
     prompt = prompt.replace(
         "Would a smart 16-year-old understand this immediately?",
         "Would a smart 16-year-old understand this immediately?" + check_extra,

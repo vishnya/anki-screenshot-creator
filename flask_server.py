@@ -1,5 +1,6 @@
 import json
 import queue
+import re
 import threading
 import time
 import uuid
@@ -16,6 +17,7 @@ import models
 ANKICONNECT_URL = "http://localhost:8765"
 SCREENSHOTS_DIR = Path.home() / "AnkiFox" / "incoming"
 BASE_DIR        = Path(__file__).parent
+_QUEUE_FILE     = Path.home() / ".anki-fox" / "offline_queue.json"
 
 app = Flask(
     __name__,
@@ -36,23 +38,223 @@ def add_no_cache(response):
 _sse_subscribers: list[queue.Queue] = []
 _sse_lock = threading.Lock()
 
-# ── Recent cards (kept in memory, newest-first) ──────────────────────────────────
-_recent_cards: list[dict] = []
+# ── Persistent state file ──────────────────────────────────────────────────────────
+_STATE_FILE = cfg.CONFIG_DIR / "state.json"
+
+def _load_state():
+    """Load persisted activity log, recent cards, and batches from disk."""
+    try:
+        if _STATE_FILE.exists():
+            with open(_STATE_FILE) as f:
+                s = json.load(f)
+            return (
+                s.get("activity_log", []),
+                s.get("recent_cards", []),
+                {k: v for k, v in s.get("batches", {}).items()},
+            )
+    except (json.JSONDecodeError, OSError):
+        pass
+    return [], [], {}
+
+def _save_state():
+    """Persist activity log, recent cards, and batches to disk."""
+    try:
+        cfg.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(_STATE_FILE, "w") as f:
+            json.dump({
+                "activity_log": _activity_log,
+                "recent_cards": _recent_cards,
+                "batches": _batches,
+            }, f)
+    except OSError:
+        pass
+
+# ── Recent cards (newest-first) ──────────────────────────────────────────────────
 _recent_lock  = threading.Lock()
 
-# ── Activity log (kept in memory, newest-first) ──────────────────────────────────
-_activity_log: list[dict] = []  # {"message": str, "type": str, "ts": float}
+# ── Activity log (newest-first) ──────────────────────────────────────────────────
 _activity_lock = threading.Lock()
 
 # ── Undo: batch_id → list of note IDs ─────────────────────────────────────────────
-_batches: dict[str, list[int]] = {}  # keeps last 10 batches
 _batches_lock = threading.Lock()
+
+_activity_log, _recent_cards, _batches = _load_state()
+
+# ── Offline queue ─────────────────────────────────────────────────────────────
+_queue_lock = threading.Lock()
+_queue_processing = threading.Lock()  # ensures only one _process_queue runs at a time
+_offline_queue: list[dict] = []  # [{"path": str, "ts": float, "deck": str, "conf": dict}]
+
+def _load_queue():
+    try:
+        if _QUEUE_FILE.exists():
+            with open(_QUEUE_FILE) as f:
+                return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        pass
+    return []
+
+def _save_queue():
+    try:
+        _QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(_QUEUE_FILE, "w") as f:
+            json.dump(_offline_queue, f)
+    except OSError:
+        pass
+
+_offline_queue = _load_queue()
+
+def _is_network_error(exc: Exception) -> bool:
+    """Return True if the exception looks like a connectivity failure."""
+    net_types = [ConnectionError, TimeoutError, OSError]
+    # Dynamically add library-specific network error types
+    for mod_name, cls_name in [
+        ("requests.exceptions", "ConnectionError"),
+        ("requests.exceptions", "Timeout"),
+        ("httpx", "ConnectError"),
+        ("httpx", "ConnectTimeout"),
+        ("anthropic", "APIConnectionError"),
+        ("anthropic", "APITimeoutError"),
+        ("openai", "APIConnectionError"),
+        ("openai", "APITimeoutError"),
+    ]:
+        try:
+            import importlib
+            m = importlib.import_module(mod_name)
+            net_types.append(getattr(m, cls_name))
+        except (ImportError, AttributeError):
+            pass
+    net_types = tuple(net_types)
+    # Check the exception itself and any wrapped cause
+    for e in (exc, getattr(exc, "__cause__", None)):
+        if e is not None and isinstance(e, net_types):
+            return True
+    msg = str(exc).lower()
+    return any(k in msg for k in ("connection", "timeout", "unreachable", "network", "dns", "name resolution"))
+
+def _enqueue_screenshot(path: str, conf: dict):
+    """Add a screenshot to the offline queue for later processing."""
+    deck = conf.get("deck", "")
+    # Snapshot only what's needed to process later
+    entry = {
+        "path": path,
+        "ts": time.time(),
+        "deck": deck,
+        "conf": {
+            "model": conf.get("model"),
+            "api_keys": conf.get("api_keys"),
+            "custom_prompt": conf.get("custom_prompt", ""),
+        },
+    }
+    with _queue_lock:
+        _offline_queue.append(entry)
+        _save_queue()
+    count = len(_offline_queue)
+    _push_event({
+        "type": "offline_queued",
+        "message": f"Offline — screenshot queued ({count} pending)",
+        "queue_count": count,
+    })
+
+def _process_queue():
+    """Try to process all queued screenshots. Serialized via _queue_processing lock."""
+    if not _queue_processing.acquire(blocking=False):
+        return  # another _process_queue is already running
+    try:
+        _process_queue_inner()
+    finally:
+        _queue_processing.release()
+
+def _process_queue_inner():
+    with _queue_lock:
+        total = len(_offline_queue)
+    if total == 0:
+        return
+
+    processed = 0
+    total_added = 0
+    total_dupes = 0
+
+    while True:
+        with _queue_lock:
+            if not _offline_queue:
+                break
+            entry = _offline_queue[0]
+
+        path = entry["path"]
+        deck = entry["deck"]
+        conf = {**cfg.load(), **entry["conf"]}
+        conf["deck_context"] = fetch_deck_cards(deck)
+
+        if not Path(path).exists():
+            with _queue_lock:
+                if _offline_queue and _offline_queue[0] is entry:
+                    _offline_queue.pop(0)
+                    _save_queue()
+            continue
+
+        try:
+            cards = models.generate_cards(path, conf)
+            result = _add_cards_to_anki(cards, path, deck)
+            batch_id = result["batch_id"]
+
+            added_cards = [c for c in cards if c.get("note_id")]
+            with _recent_lock:
+                for card in reversed(added_cards):
+                    _recent_cards.insert(0, {
+                        "front": card["front"], "back": card["back"],
+                        "deck": deck, "ts": time.time(),
+                        "batch_id": batch_id, "note_id": card["note_id"],
+                    })
+                del _recent_cards[20:]
+                _save_state()
+
+            # Push card data to UI (for recent cards list) but not an activity entry
+            if added_cards:
+                _push_event({
+                    "type": "done", "message": "",
+                    "cards": added_cards, "batch_id": batch_id,
+                })
+
+            processed += 1
+            total_added += result["added"]
+            total_dupes += result["duplicates"]
+
+            with _queue_lock:
+                if _offline_queue and _offline_queue[0] is entry:
+                    _offline_queue.pop(0)
+                    _save_queue()
+
+        except Exception as e:
+            if _is_network_error(e):
+                return
+            _push_event({"type": "error", "message": f"Failed to process queued {Path(path).name}: {e}"})
+            with _queue_lock:
+                if _offline_queue and _offline_queue[0] is entry:
+                    _offline_queue.pop(0)
+                    _save_queue()
+
+    # Single summary — this is also the "back online" signal
+    if processed > 0:
+        msg = f"Back online — processed {processed} queued screenshot{'' if processed == 1 else 's'}, {total_added} card(s) added"
+        if total_dupes:
+            msg += f" ({total_dupes} skipped as duplicates)"
+        _push_event({"type": "queue_clear", "queue_count": 0, "message": msg})
+
+def _queue_worker():
+    """Background thread: periodically retries queued screenshots."""
+    while True:
+        time.sleep(30)
+        with _queue_lock:
+            if not _offline_queue:
+                continue
+        _process_queue()
 
 
 def _push_event(data: dict):
     # Persist log-worthy events for replay on reconnect
     etype = data.get("type", "")
-    if etype in ("progress", "done", "error", "undo", "card_deleted"):
+    if etype in ("progress", "done", "error", "undo", "card_deleted", "session_start", "session_stop", "offline_queued", "queue_clear"):
         entry = {
             "message": data.get("message", ""),
             "type":    etype,
@@ -63,6 +265,7 @@ def _push_event(data: dict):
         with _activity_lock:
             _activity_log.insert(0, entry)
             del _activity_log[20:]  # keep last 20
+            _save_state()
 
     with _sse_lock:
         dead = []
@@ -84,6 +287,33 @@ def _ankiconnect(action: str, **params):
     if result.get("error"):
         raise Exception(f"AnkiConnect error: {result['error']}")
     return result["result"]
+
+
+def fetch_deck_cards(deck: str, limit: int = 30) -> list[dict]:
+    """Fetch the most recent cards from a deck for LLM context. Never raises."""
+    try:
+        note_ids = _ankiconnect("findNotes", query=f'"deck:{deck}"')
+        if not note_ids:
+            return []
+        # Take the most recent cards (findNotes returns creation order)
+        selected = note_ids[-limit:]
+        notes = _ankiconnect("notesInfo", notes=selected)
+        cards = []
+        for n in notes:
+            front = n.get("fields", {}).get("Front", {}).get("value", "")
+            back = n.get("fields", {}).get("Back", {}).get("value", "")
+            # Strip HTML tags for clean text context
+            back = re.sub(r"<[^>]+>", "", back).strip()
+            front = re.sub(r"<[^>]+>", "", front).strip()
+            if front:
+                cards.append({
+                    "front": front,
+                    "back": back[:200],
+                    "tags": n.get("tags", []),
+                })
+        return cards
+    except Exception:
+        return []
 
 
 # ── Watchdog ──────────────────────────────────────────────────────────────────────
@@ -116,6 +346,8 @@ class ScreenshotHandler(FileSystemEventHandler):
         filename = Path(path).name
         _push_event({"type": "progress", "message": f"Processing {filename}..."})
 
+        conf["deck_context"] = fetch_deck_cards(deck)
+
         try:
             cards = models.generate_cards(path, conf)
             _push_event({"type": "progress", "message": f"{len(cards)} card(s) generated, adding to Anki..."})
@@ -123,17 +355,19 @@ class ScreenshotHandler(FileSystemEventHandler):
             result = _add_cards_to_anki(cards, path, deck)
             batch_id = result["batch_id"]
 
+            added_cards = [c for c in cards if c.get("note_id")]
             with _recent_lock:
-                for card in reversed(cards):
+                for card in reversed(added_cards):
                     _recent_cards.insert(0, {
                         "front":    card["front"],
                         "back":     card["back"],
                         "deck":     deck,
                         "ts":       time.time(),
                         "batch_id": batch_id,
-                        "note_id":  card.get("note_id"),
+                        "note_id":  card["note_id"],
                     })
                 del _recent_cards[20:]  # keep last 20
+                _save_state()
 
             msg = f"Added {result['added']} card(s) to '{deck}'"
             if result["duplicates"]:
@@ -142,11 +376,14 @@ class ScreenshotHandler(FileSystemEventHandler):
             _push_event({
                 "type":     "done",
                 "message":  msg,
-                "cards":    cards,
+                "cards":    added_cards,
                 "batch_id": batch_id,
             })
         except Exception as e:
-            _push_event({"type": "error", "message": str(e)})
+            if _is_network_error(e):
+                _enqueue_screenshot(path, conf)
+            else:
+                _push_event({"type": "error", "message": str(e)})
 
 
 def _add_cards_to_anki(cards: list[dict], image_path: str, deck: str) -> dict:
@@ -197,6 +434,7 @@ def _add_cards_to_anki(cards: list[dict], image_path: str, deck: str) -> dict:
         while len(_batches) > 10:
             oldest = next(iter(_batches))
             del _batches[oldest]
+        _save_state()
 
     return {"added": added, "duplicates": duplicates, "batch_id": batch_id}
 
@@ -330,6 +568,7 @@ def api_undo():
         _ankiconnect("deleteNotes", notes=ids)
         with _recent_lock:
             _recent_cards[:] = [c for c in _recent_cards if c.get("batch_id") != batch_id]
+            _save_state()
         _push_event({"type": "undo", "message": f"Undid {len(ids)} card(s)", "batch_id": batch_id})
         return jsonify({"ok": True, "deleted": len(ids)})
     except Exception as e:
@@ -352,6 +591,7 @@ def api_delete_card():
                 if note_id in ids:
                     ids.remove(note_id)
                     break
+            _save_state()
         _push_event({"type": "card_deleted", "note_id": note_id, "message": "Deleted card from Anki"})
         return jsonify({"ok": True})
     except Exception as e:
@@ -369,8 +609,20 @@ def api_session_start():
     conf = cfg.load()
     conf["session_active"] = True
     cfg.save(conf)
-    _push_event({"type": "session_start", "deck": conf.get("deck", "")})
-    return jsonify({"ok": True, "deck": conf.get("deck", "")})
+    deck = conf.get("deck", "")
+    model = conf.get("model", {})
+    provider = model.get("provider", "")
+    model_name = model.get("model_name", "")
+    prompt = conf.get("custom_prompt", "").strip()
+    msg = f"Session started — {deck}"
+    if provider and model_name:
+        msg += f" ({provider}/{model_name})"
+    if prompt:
+        # Show first ~60 chars of prompt
+        short = prompt[:60] + ("..." if len(prompt) > 60 else "")
+        msg += f' — "{short}"'
+    _push_event({"type": "session_start", "deck": deck, "message": msg})
+    return jsonify({"ok": True, "deck": deck})
 
 
 @app.route("/api/session/stop", methods=["POST"])
@@ -378,8 +630,44 @@ def api_session_stop():
     conf = cfg.load()
     conf["session_active"] = False
     cfg.save(conf)
-    _push_event({"type": "session_stop"})
+    _push_event({"type": "session_stop", "message": "Session stopped"})
     return jsonify({"ok": True})
+
+
+@app.route("/api/connectivity")
+def api_connectivity():
+    """Quick check: can we reach the configured AI provider?"""
+    import requests as req
+    conf = cfg.load()
+    provider = conf.get("model", {}).get("provider", "anthropic")
+    urls = {
+        "anthropic": "https://api.anthropic.com",
+        "openai":    "https://api.openai.com",
+        "groq":      "https://api.groq.com",
+        "gemini":    "https://generativelanguage.googleapis.com",
+    }
+    url = urls.get(provider)
+    if not url:
+        return jsonify({"online": True, "queue_count": len(_offline_queue)})
+    try:
+        req.head(url, timeout=3)
+        online = True
+    except Exception:
+        online = False
+    # If we just came back online and there are queued items, kick off processing
+    if online and _offline_queue:
+        threading.Thread(target=_process_queue, daemon=True).start()
+    with _queue_lock:
+        qc = len(_offline_queue)
+    return jsonify({"online": online, "queue_count": qc})
+
+
+@app.route("/api/offline-queue")
+def api_offline_queue():
+    with _queue_lock:
+        return jsonify({"count": len(_offline_queue), "items": [
+            {"path": e["path"], "ts": e["ts"], "deck": e["deck"]} for e in _offline_queue
+        ]})
 
 
 @app.route("/api/events")
@@ -397,7 +685,9 @@ def api_events():
                 undoable = list(_batches.keys())
             with _activity_lock:
                 log_snapshot = list(_activity_log)
-            yield f"data: {json.dumps({'type': 'recent', 'cards': snapshot, 'undoable_batches': undoable, 'activity_log': log_snapshot})}\n\n"
+            with _queue_lock:
+                queue_count = len(_offline_queue)
+            yield f"data: {json.dumps({'type': 'recent', 'cards': snapshot, 'undoable_batches': undoable, 'activity_log': log_snapshot, 'queue_count': queue_count})}\n\n"
             # Stream live events
             while True:
                 try:
@@ -429,6 +719,9 @@ def _start_watchdog():
     observer = Observer()
     observer.schedule(ScreenshotHandler(), str(SCREENSHOTS_DIR), recursive=False)
     observer.start()
+    # Start offline queue worker
+    t = threading.Thread(target=_queue_worker, daemon=True)
+    t.start()
     return observer
 
 

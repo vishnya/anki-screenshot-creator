@@ -242,6 +242,12 @@ textarea {
   color: var(--green);
 }
 
+.status-banner.offline {
+  background: rgba(217, 169, 56, 0.12);
+  border: 1px solid rgba(217, 169, 56, 0.35);
+  color: #d9a938;
+}
+
 .status-banner.error {
   background: rgba(224, 92, 92, 0.12);
   border: 1px solid rgba(224, 92, 92, 0.35);
@@ -298,8 +304,9 @@ textarea {
   flex: 1;
 }
 
-.activity-log .log-error { color: var(--red); }
-.activity-log .log-done  { color: var(--green); }
+.activity-log .log-error   { color: var(--red); }
+.activity-log .log-done    { color: var(--green); }
+.activity-log .log-offline { color: #d9a938; }
 
 .log-undo-btn {
   font-size: 11px;
