@@ -38,7 +38,7 @@
     <label for="custom-prompt">Topic focus <span class="label-note">(optional — default prompt is already effective)</span></label>
     <textarea id="custom-prompt" placeholder="Add specifics to steer the cards, e.g. &quot;Prioritise clinical applications over mechanisms&quot; or &quot;Focus on molecular biology terminology.&quot;"></textarea>
     <div class="prompt-saved hidden" id="prompt-saved">
-      <button type="button" id="btn-clear-prompt">clear</button>
+      Saved for <span id="prompt-saved-deck"></span> · <button type="button" id="btn-clear-prompt">clear</button>
     </div>
   </div>
 
@@ -49,8 +49,7 @@
       <div class="field">
         <label for="provider">Provider</label>
         <select id="provider">
-          <option value="claude-code">Claude (subscription)</option>
-          <option value="anthropic">Claude (API key)</option>
+          <option value="anthropic">Claude (Anthropic)</option>
           <option value="openai">GPT (OpenAI)</option>
           <option value="groq">Groq</option>
           <option value="gemini">Gemini (Google)</option>

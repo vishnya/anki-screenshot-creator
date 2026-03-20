@@ -1,11 +1,7 @@
 // ── Constants ──────────────────────────────────────────────────────────────────
 const MODEL_DEFAULTS = {
-  "claude-code": {
-    label: "Claude (subscription)", apiKeyLabel: "", apiKeyPlaceholder: "", hasKey: false, hasUrl: false,
-    models: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
-  },
   anthropic: {
-    label: "Claude (API key)", apiKeyLabel: "Anthropic API Key", apiKeyPlaceholder: "sk-ant-...", hasKey: true, hasUrl: false,
+    label: "Claude", apiKeyLabel: "Anthropic API Key", apiKeyPlaceholder: "sk-ant-...", hasKey: true, hasUrl: false,
     models: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5", "claude-sonnet-4-5"],
   },
   openai: {
@@ -48,6 +44,7 @@ const baseUrlField      = document.getElementById("field-base-url");
 const baseUrlInput      = document.getElementById("base-url");
 const promptInput     = document.getElementById("custom-prompt");
 const promptSaved     = document.getElementById("prompt-saved");
+const promptSavedDeck = document.getElementById("prompt-saved-deck");
 const btnClearPrompt  = document.getElementById("btn-clear-prompt");
 const startBtn        = document.getElementById("btn-start");
 const stopBtn         = document.getElementById("btn-stop");
@@ -508,6 +505,7 @@ deckSelect.addEventListener("change", async () => {
 function updatePromptSavedIndicator(deck) {
   const hasSaved = !!(deck && config?.deck_prompts?.[deck]);
   if (hasSaved) {
+    promptSavedDeck.textContent = deck;
     promptSaved.classList.remove("hidden");
   } else {
     promptSaved.classList.add("hidden");

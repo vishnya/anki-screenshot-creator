@@ -690,12 +690,6 @@ def api_connectivity():
         "groq":      "https://api.groq.com",
         "gemini":    "https://generativelanguage.googleapis.com",
     }
-    if provider == "claude-code":
-        from models import _find_claude_cli
-        online = _find_claude_cli() is not None
-        with _queue_lock:
-            qc = len(_offline_queue)
-        return jsonify({"online": online, "queue_count": qc})
     url = urls.get(provider)
     if not url:
         return jsonify({"online": True, "queue_count": len(_offline_queue)})
@@ -879,24 +873,36 @@ def api_events():
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────────
+_seen_files: set[str] = set()
+
+def _poll_screenshots():
+    """Poll for new screenshots — FSEvents is unreliable under launchd."""
+    global _seen_files
+    handler = ScreenshotHandler()
+    _seen_files = {p.name for p in SCREENSHOTS_DIR.glob("*.png")}
+    while True:
+        try:
+            time.sleep(2)
+            current = {p.name for p in SCREENSHOTS_DIR.glob("*.png")}
+            new_files = current - _seen_files
+            _seen_files = current
+            for fname in sorted(new_files):
+                fpath = str(SCREENSHOTS_DIR / fname)
+                from watchdog.events import FileCreatedEvent
+                handler.on_created(FileCreatedEvent(fpath))
+        except Exception as e:
+            print(f"Poll error: {e}", flush=True)
+
+
 def _start_watchdog():
     SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-    # Use PollingObserver — the default FSEvents observer requires a CFRunLoop
-    # which isn't available when running under launchd.
-    from watchdog.observers.polling import PollingObserver
-    observer = PollingObserver(timeout=2)
-    observer.schedule(ScreenshotHandler(), str(SCREENSHOTS_DIR), recursive=False)
-    observer.start()
-    # Start offline queue worker
-    t = threading.Thread(target=_queue_worker, daemon=True)
+    t = threading.Thread(target=_poll_screenshots, daemon=True)
     t.start()
-    return observer
+    # Start offline queue worker
+    q = threading.Thread(target=_queue_worker, daemon=True)
+    q.start()
 
 
 if __name__ == "__main__":
-    observer = _start_watchdog()
-    try:
-        app.run(host="127.0.0.1", port=5789, threaded=True, use_reloader=False)
-    finally:
-        observer.stop()
-        observer.join()
+    _start_watchdog()
+    app.run(host="127.0.0.1", port=5789, threaded=True, use_reloader=False)
