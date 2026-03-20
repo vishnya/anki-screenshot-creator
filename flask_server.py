@@ -691,8 +691,8 @@ def api_connectivity():
         "gemini":    "https://generativelanguage.googleapis.com",
     }
     if provider == "claude-code":
-        import shutil
-        online = shutil.which("claude") is not None
+        from models import _find_claude_cli
+        online = _find_claude_cli() is not None
         with _queue_lock:
             qc = len(_offline_queue)
         return jsonify({"online": online, "queue_count": qc})

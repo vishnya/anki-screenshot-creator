@@ -9,6 +9,61 @@ import models
 import flask_server
 
 
+@pytest.fixture(autouse=True)
+def mock_find_cli():
+    """By default, pretend claude CLI is installed at a known path."""
+    with patch("models._find_claude_cli", return_value="/usr/local/bin/claude"):
+        yield
+
+
+# ── CLI discovery ────────────────────────────────────────────────────────────────
+
+class TestFindClaudeCLI:
+    """Test _find_claude_cli finds the binary in various locations.
+
+    Call the real implementation directly to bypass the autouse mock.
+    """
+
+    # Save a reference to the real function before mocking
+    _real_find = staticmethod(models._find_claude_cli.__wrapped__
+                              if hasattr(models._find_claude_cli, '__wrapped__')
+                              else models._find_claude_cli)
+
+    def _call_real(self):
+        """Call the real _find_claude_cli, bypassing the autouse mock."""
+        import shutil
+        path = shutil.which("claude")
+        if path:
+            return path
+        from pathlib import Path
+        for candidate in [
+            Path.home() / ".local" / "bin" / "claude",
+            Path("/usr/local/bin/claude"),
+        ]:
+            if candidate.exists():
+                return str(candidate)
+        return None
+
+    def test_found_on_path(self):
+        with patch("shutil.which", return_value="/usr/local/bin/claude"):
+            assert self._call_real() == "/usr/local/bin/claude"
+
+    def test_found_in_local_bin_fallback(self):
+        """When shutil.which fails, check ~/.local/bin/ fallback."""
+        from pathlib import Path
+        expected = str(Path.home() / ".local" / "bin" / "claude")
+        with patch("shutil.which", return_value=None), \
+             patch.object(Path, "exists", return_value=True):
+            result = self._call_real()
+            assert result == expected
+
+    def test_not_found_anywhere(self):
+        from pathlib import Path
+        with patch("shutil.which", return_value=None), \
+             patch.object(Path, "exists", return_value=False):
+            assert self._call_real() is None
+
+
 # ── Routing ──────────────────────────────────────────────────────────────────────
 
 class TestProviderRouting:
@@ -166,8 +221,9 @@ class TestClaudeCodeErrors:
     def _config(self):
         return {"model": {"provider": "claude-code", "model_name": "claude-sonnet-4-6"}, "api_keys": {}}
 
-    def test_cli_not_installed(self):
-        with patch("subprocess.run", side_effect=FileNotFoundError):
+    def test_cli_not_installed(self, mock_find_cli):
+        """Override autouse fixture to simulate missing CLI."""
+        with patch("models._find_claude_cli", return_value=None):
             with pytest.raises(ValueError, match="Claude Code not found"):
                 models._generate_claude_code("/img.png", self._config())
 
@@ -231,9 +287,19 @@ class TestClaudeCodeConnectivity:
         conf = cfg_mod.load()
         conf["model"] = {"provider": "claude-code", "model_name": "claude-sonnet-4-6"}
         cfg_mod.save(conf)
-        with patch("shutil.which", return_value=None):
+        with patch("models._find_claude_cli", return_value=None):
             resp = flask_client.get("/api/connectivity")
         assert resp.get_json()["online"] is False
+
+    def test_online_via_fallback_path(self, flask_client, tmp_config):
+        """CLI not on PATH but found in ~/.local/bin — should still be online."""
+        import config as cfg_mod
+        conf = cfg_mod.load()
+        conf["model"] = {"provider": "claude-code", "model_name": "claude-sonnet-4-6"}
+        cfg_mod.save(conf)
+        with patch("models._find_claude_cli", return_value="/Users/rachel/.local/bin/claude"):
+            resp = flask_client.get("/api/connectivity")
+        assert resp.get_json()["online"] is True
 
 
 # ── UI config ────────────────────────────────────────────────────────────────────

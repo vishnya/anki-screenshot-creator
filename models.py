@@ -247,8 +247,31 @@ def _generate_anthropic(image_path: str, config: dict) -> list[dict]:
     return _parse_cards(message.content[0].text)
 
 
+def _find_claude_cli() -> str | None:
+    """Find the claude CLI binary, checking common install paths."""
+    import shutil
+    path = shutil.which("claude")
+    if path:
+        return path
+    # launchd agents have a minimal PATH — check common install locations
+    for candidate in [
+        Path.home() / ".local" / "bin" / "claude",
+        Path("/usr/local/bin/claude"),
+    ]:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
 def _generate_claude_code(image_path: str, config: dict) -> list[dict]:
     import subprocess
+
+    claude_bin = _find_claude_cli()
+    if not claude_bin:
+        raise ValueError(
+            "Claude Code not found — install it from "
+            "https://docs.anthropic.com/en/docs/claude-code"
+        )
 
     model_name = config["model"].get("model_name", "claude-sonnet-4-6")
     prompt = _build_prompt(config)
@@ -258,7 +281,7 @@ def _generate_claude_code(image_path: str, config: dict) -> list[dict]:
     )
 
     cmd = [
-        "claude", "-p",
+        claude_bin, "-p",
         "--output-format", "json",
         "--model", model_name,
         "--allowedTools", "Read",
@@ -268,11 +291,6 @@ def _generate_claude_code(image_path: str, config: dict) -> list[dict]:
         result = subprocess.run(
             cmd, input=full_prompt, capture_output=True,
             text=True, timeout=120,
-        )
-    except FileNotFoundError:
-        raise ValueError(
-            "Claude Code not found — install it from "
-            "https://docs.anthropic.com/en/docs/claude-code"
         )
     except subprocess.TimeoutExpired:
         raise ValueError("Claude Code timed out after 120 seconds")
