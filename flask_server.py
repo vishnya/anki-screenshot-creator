@@ -881,7 +881,10 @@ def api_events():
 # ── Startup ───────────────────────────────────────────────────────────────────────
 def _start_watchdog():
     SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-    observer = Observer()
+    # Use PollingObserver — the default FSEvents observer requires a CFRunLoop
+    # which isn't available when running under launchd.
+    from watchdog.observers.polling import PollingObserver
+    observer = PollingObserver(timeout=2)
     observer.schedule(ScreenshotHandler(), str(SCREENSHOTS_DIR), recursive=False)
     observer.start()
     # Start offline queue worker
