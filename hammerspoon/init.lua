@@ -147,7 +147,7 @@ end
 
 local function takeMultiScreenshot()
   local ts   = os.date("%Y%m%d_%H%M%S") .. "_" .. #multiPaths
-  local path = INCOMING .. "/.multi_" .. ts .. ".png"
+  local path = INCOMING .. "/multi_" .. ts .. ".png"
 
   -- Disable Enter/Escape while screencapture is active so keys reach screencapture
   if multiEscTap then multiEscTap:disable() end

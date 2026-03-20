@@ -20,8 +20,8 @@ class TestMultiFinishStitching:
         return p
 
     def test_stitch_two_same_width(self, flask_client, tmp_path):
-        p1 = self._make_image(tmp_path, ".multi_0.png", 100, 50)
-        p2 = self._make_image(tmp_path, ".multi_1.png", 100, 60)
+        p1 = self._make_image(tmp_path, "multi_0.png", 100, 50)
+        p2 = self._make_image(tmp_path, "multi_1.png", 100, 60)
         resp = flask_client.post("/api/multi/finish", json={"paths": [p1, p2]})
         assert resp.status_code == 200
         data = resp.get_json()
@@ -32,8 +32,8 @@ class TestMultiFinishStitching:
         result.close()
 
     def test_stitch_different_widths_uses_max(self, flask_client, tmp_path):
-        p1 = self._make_image(tmp_path, ".multi_0.png", 80, 50)
-        p2 = self._make_image(tmp_path, ".multi_1.png", 200, 50)
+        p1 = self._make_image(tmp_path, "multi_0.png", 80, 50)
+        p2 = self._make_image(tmp_path, "multi_1.png", 200, 50)
         resp = flask_client.post("/api/multi/finish", json={"paths": [p1, p2]})
         result = Image.open(resp.get_json()["path"])
         assert result.width == 200
@@ -41,7 +41,7 @@ class TestMultiFinishStitching:
         result.close()
 
     def test_stitch_three_images(self, flask_client, tmp_path):
-        paths = [self._make_image(tmp_path, f".multi_{i}.png", 100, 30) for i in range(3)]
+        paths = [self._make_image(tmp_path, f"multi_{i}.png", 100, 30) for i in range(3)]
         resp = flask_client.post("/api/multi/finish", json={"paths": paths})
         assert resp.status_code == 200
         result = Image.open(resp.get_json()["path"])
@@ -49,13 +49,13 @@ class TestMultiFinishStitching:
         result.close()
 
     def test_stitch_cleans_up_temp_files(self, flask_client, tmp_path):
-        paths = [self._make_image(tmp_path, f".multi_{i}.png", 100, 50) for i in range(2)]
+        paths = [self._make_image(tmp_path, f"multi_{i}.png", 100, 50) for i in range(2)]
         flask_client.post("/api/multi/finish", json={"paths": paths})
         for p in paths:
             assert not Path(p).exists(), f"Temp file {p} should be cleaned up"
 
     def test_stitch_single_image_works(self, flask_client, tmp_path):
-        p = self._make_image(tmp_path, ".multi_0.png", 200, 100)
+        p = self._make_image(tmp_path, "multi_0.png", 200, 100)
         resp = flask_client.post("/api/multi/finish", json={"paths": [p]})
         assert resp.status_code == 200
         assert resp.get_json()["ok"] is True
@@ -73,8 +73,8 @@ class TestMultiFinishStitching:
         out_dir = tmp_path / "incoming"
         out_dir.mkdir()
         monkeypatch.setattr(flask_server, "SCREENSHOTS_DIR", out_dir)
-        p1 = self._make_image(tmp_path, ".multi_0.png", 100, 50)
-        p2 = self._make_image(tmp_path, ".multi_1.png", 100, 50)
+        p1 = self._make_image(tmp_path, "multi_0.png", 100, 50)
+        p2 = self._make_image(tmp_path, "multi_1.png", 100, 50)
         resp = flask_client.post("/api/multi/finish", json={"paths": [p1, p2]})
         result_path = resp.get_json()["path"]
         assert str(out_dir) in result_path
@@ -82,7 +82,7 @@ class TestMultiFinishStitching:
 
 
 class TestWatchdogIgnoresMultiTempFiles:
-    """Watchdog must ignore dot-prefixed .multi_ temp files."""
+    """Watchdog must ignore multi_ temp files."""
 
     def test_dot_multi_file_skipped(self, flask_client, tmp_path, mock_ankiconnect):
         conf = cfg_mod.load()
@@ -91,7 +91,7 @@ class TestWatchdogIgnoresMultiTempFiles:
         conf["api_keys"] = {"anthropic": "sk-test"}
         cfg_mod.save(conf)
 
-        dot_path = str(tmp_path / ".multi_20260320_120000_0.png")
+        dot_path = str(tmp_path / "multi_20260320_120000_0.png")
         Image.new("RGB", (100, 100)).save(dot_path)
 
         handler = flask_server.ScreenshotHandler()
@@ -141,8 +141,8 @@ class TestMultiStitchThenWatchdog:
         conf["model"] = {"provider": "anthropic", "model_name": "test", "base_url": None}
         cfg_mod.save(conf)
 
-        p1 = str(tmp_path / ".multi_0.png")
-        p2 = str(tmp_path / ".multi_1.png")
+        p1 = str(tmp_path / "multi_0.png")
+        p2 = str(tmp_path / "multi_1.png")
         Image.new("RGB", (100, 50)).save(p1)
         Image.new("RGB", (100, 50)).save(p2)
 

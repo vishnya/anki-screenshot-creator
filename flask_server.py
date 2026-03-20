@@ -329,8 +329,9 @@ class ScreenshotHandler(FileSystemEventHandler):
     def on_created(self, event):
         if event.is_directory or not event.src_path.endswith(".png"):
             return
-        # Skip dot-prefixed files (used as temp storage for multi-screenshot)
-        if Path(event.src_path).name.startswith("."):
+        # Skip multi-screenshot temp files and dot-prefixed files
+        fname = Path(event.src_path).name
+        if fname.startswith(".") or fname.startswith("multi_"):
             return
         path = event.src_path
         time.sleep(0.5)  # let screencapture finish writing
