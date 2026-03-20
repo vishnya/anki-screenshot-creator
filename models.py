@@ -23,7 +23,9 @@ RULES:
 - For definitions: "What is [term]?" → one plain-english sentence
 - For processes/steps: one card per step, written as a natural question
 - For cause/effect: "What happens when X?" → short direct answer; add a reverse card if both directions are worth knowing
-- For formulas: "What's the formula for [concept]?" → formula in MathJax notation + what each variable means
+- For formulas: "What's the formula for [concept]?" → formula in MathJax notation, then EVERY variable/symbol defined briefly (e.g. "where \(r_\theta(x, y)\) = reward model score for response \(y\) to prompt \(x\)"). If the answer to a card IS a formula, the reader must be able to understand each term without looking anything up.
+  BAD back: "\(\mathcal{L} = -\log \sigma(r_\theta(x, y_w) - r_\theta(x, y_l))\). It pushes the reward model to score the winning response higher." — what are \(r_\theta\), \(x\), \(y_w\), \(y_l\), \(\sigma\)?
+  GOOD back: "\(\mathcal{L} = -\log \sigma(r_\theta(x, y_w) - r_\theta(x, y_l))\) where \(r_\theta\) = learned reward model, \(x\) = prompt, \(y_w\) = preferred response, \(y_l\) = rejected response, \(\sigma\) = sigmoid. Pushes the model to score \(y_w\) higher than \(y_l\)."
 - For computations/worked examples: the front MUST give all the numbers needed to do the calculation — never ask the reader to compute something without providing every input. The back shows the formula with numbers plugged in, the result, and names the broader concept in bold (e.g. "**Concept: utilization inflates cost.** You pay for 100% of GPU time but only use 70%, so the bill is 1/0.7 ≈ 1.43x the theoretical minimum."). The point of a computation card is to illustrate a concept through a concrete example, not to test arithmetic.
   BAD front: "How much would it cost to train GPT-3 on 256 H100s at $2/hour with 70% utilization?" — where does the training time come from? The reader can't compute anything.
   GOOD front: "GPT-3-175B takes 256 days to train on 256 H100s. Each GPU rents for $2/hour, but you only achieve 70% utilization. What's the total training cost?"
