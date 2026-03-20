@@ -6,11 +6,15 @@ Keep only the last 10 entries. Each entry: date, device, what was done.
 ---
 
 ### 2026-03-20 | Mac
-- Fixed multi-screenshot mode: screencapture rejects dot-prefixed filenames, renamed .multi_ to multi_; also fixed race condition and key interference in Hammerspoon
-- Added claude-code provider: shells out to `claude` CLI for subscription-based card generation (no API key needed). New dropdown option "Claude (subscription)" at top of provider list
-- Added computation card rules to prompt: front must give all inputs, back shows formula + names broader concept
-- Updated /anki slash command and anki_watcher.md memory
-- 311 tests passing (29 new for claude-code, 16 for multi-screenshot, 2 for prompt), pushed to GitHub
+- Fixed multi-screenshot mode: screencapture rejects dot-prefixed filenames, renamed .multi_ to multi_; fixed race condition and key interference in Hammerspoon
+- Replaced watchdog FSEvents observer with polling thread (FSEvents unreliable under launchd after restart cycles)
+- Added MathJax formula support: prompt rules for \(...\) delimiters, variable definitions required, _strip_html_preserve_math() for deck context round-trip, MathJax 3 CDN in web UI
+- Added computation card rules: front must give all inputs, back shows formula + names broader concept
+- Removed "Saved for" indicator from prompt field
+- Claude-code subscription provider attempted but reverted (launchd integration issues) — notes saved for future session
+- Updated /anki slash command, anki_watcher.md memory
+- Exported Chip_AI_Engineering deck as zip with images for quiz game
+- 306 tests passing (24 mathjax, 16 multi-screenshot, 2 prompt), pushed to GitHub
 
 ### 2026-03-17 | Mac
 - Added 8 UX check tests to test_ui.py using shared ~/code/ux_checks/ library
