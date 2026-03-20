@@ -5,6 +5,13 @@ Keep only the last 10 entries. Each entry: date, device, what was done.
 
 ---
 
+### 2026-03-20 | Mac
+- Fixed multi-screenshot mode: removed 0.3s race condition in Hammerspoon callback, disable Enter/Escape hotkeys during screencapture so keys reach screencapture normally, track pending task for clean cancel/finish
+- Added 16 new tests in test_multi_screenshot.py (stitching, watchdog integration, source cycling)
+- Updated /anki slash command to point to current project files (was referencing deleted ~/.anki-screenshot-creator/)
+- Updated anki_watcher.md memory with recent changes
+- 280 tests passing, pushed to GitHub
+
 ### 2026-03-17 | Mac
 - Added 8 UX check tests to test_ui.py using shared ~/code/ux_checks/ library
 - Tests: horizontal scroll, font readability, button uniformity, form field width, clickable not obscured, key elements in viewport, text overflow, section spacing
