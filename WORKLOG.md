@@ -6,11 +6,11 @@ Keep only the last 10 entries. Each entry: date, device, what was done.
 ---
 
 ### 2026-03-20 | Mac
-- Fixed multi-screenshot mode: removed 0.3s race condition in Hammerspoon callback, disable Enter/Escape hotkeys during screencapture so keys reach screencapture normally, track pending task for clean cancel/finish
-- Added 16 new tests in test_multi_screenshot.py (stitching, watchdog integration, source cycling)
-- Updated /anki slash command to point to current project files (was referencing deleted ~/.anki-screenshot-creator/)
-- Updated anki_watcher.md memory with recent changes
-- 280 tests passing, pushed to GitHub
+- Fixed multi-screenshot mode: screencapture rejects dot-prefixed filenames, renamed .multi_ to multi_; also fixed race condition and key interference in Hammerspoon
+- Added claude-code provider: shells out to `claude` CLI for subscription-based card generation (no API key needed). New dropdown option "Claude (subscription)" at top of provider list
+- Added computation card rules to prompt: front must give all inputs, back shows formula + names broader concept
+- Updated /anki slash command and anki_watcher.md memory
+- 311 tests passing (29 new for claude-code, 16 for multi-screenshot, 2 for prompt), pushed to GitHub
 
 ### 2026-03-17 | Mac
 - Added 8 UX check tests to test_ui.py using shared ~/code/ux_checks/ library
