@@ -115,6 +115,12 @@ If you have `$ANTHROPIC_API_KEY` set in your terminal environment, it will pre-f
 
 ---
 
+## Web UI
+
+Once the server is running, open **http://localhost:5789** in your browser to configure decks, API keys, and watch the activity log.
+
+---
+
 ## Troubleshooting
 
 View the server log:

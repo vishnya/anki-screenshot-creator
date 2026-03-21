@@ -251,5 +251,8 @@ end)
 
 hs.alert.show("anki-fox loaded — ⌥⇧A ready")
 
--- Pancake hotkeys
-dofile(os.getenv("HOME") .. "/code/pancake/hammerspoon/pancake_hotkey.lua")
+-- Load additional hotkeys if present (e.g. user's own extensions)
+local extraHotkeys = os.getenv("HOME") .. "/.hammerspoon/extras.lua"
+if hs.fs.attributes(extraHotkeys) then
+  dofile(extraHotkeys)
+end
