@@ -5,6 +5,11 @@ Keep only the last 10 entries. Each entry: date, device, what was done.
 
 ---
 
+### 2026-03-21 | Mac
+- Added claude-code provider (subscription-based): shells out to `claude` CLI, no API key needed, _find_claude_cli() with ~/.local/bin fallback for launchd PATH
+- Verified end-to-end: polling thread detects file, handler calls CLI, cards created in Anki
+- 339 tests passing (33 new for claude-code), pushed to GitHub
+
 ### 2026-03-20 | Mac
 - Fixed multi-screenshot mode: screencapture rejects dot-prefixed filenames, renamed .multi_ to multi_; fixed race condition and key interference in Hammerspoon
 - Replaced watchdog FSEvents observer with polling thread (FSEvents unreliable under launchd after restart cycles)
