@@ -54,6 +54,7 @@ def sync_remote(server):
             created = create_cards(
                 item["concept"],
                 item["definition"],
+                item["scenario"],
                 item["example"],
                 item["deck"],
                 item.get("tags", [])
@@ -95,6 +96,7 @@ def sync_local():
             created = create_cards(
                 item["concept"],
                 item["definition"],
+                item["scenario"],
                 item["example"],
                 item["deck"],
                 item.get("tags", [])

@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
 """
-Queue Anki cards for later sync when AnkiConnect isn't available (e.g., server sessions).
-
-On the server: saves card definitions to ~/.claude-cards-queue.json
-On the Mac: claude_cards_sync.py reads the queue and creates the cards via AnkiConnect.
+Queue Anki cards for later sync when AnkiConnect isn't available (server sessions).
 
 Usage (server):
-    python claude_cards_queue.py "concept" "definition" "example" [--type sysdesign|ai]
-
-The queue file is a JSON array of card objects. Each object has:
-    concept, definition, example, deck, tags, queued_at
+    python claude_cards_queue.py "concept" "definition" "scenario" "example" [--type sysdesign|ai]
 """
 
 import json
 import os
-import sys
 import argparse
 from datetime import datetime
 
@@ -35,11 +28,12 @@ def save_queue(queue):
         json.dump(queue, f, indent=2)
 
 
-def queue_card(concept, definition, example, deck, tags=None):
+def queue_card(concept, definition, scenario, example, deck, tags=None):
     queue = load_queue()
     queue.append({
         "concept": concept,
         "definition": definition,
+        "scenario": scenario,
         "example": example,
         "deck": deck,
         "tags": tags or [],
@@ -53,7 +47,8 @@ def main():
     parser = argparse.ArgumentParser(description="Queue Anki cards for later sync")
     parser.add_argument("concept", help="The term or concept name")
     parser.add_argument("definition", help="Plain-language definition")
-    parser.add_argument("example", help="Real example from our work")
+    parser.add_argument("scenario", help="Problem description WITHOUT naming the concept")
+    parser.add_argument("example", help="How it applied in our real work")
     parser.add_argument("--deck", default=None)
     parser.add_argument("--type", choices=["sysdesign", "ai"], default="sysdesign")
     parser.add_argument("--tags", nargs="*", default=[])
@@ -62,7 +57,7 @@ def main():
     deck = args.deck or (AI_DECK if args.type == "ai" else SYSDESIGN_DECK)
     tags = args.tags + [f"type:{args.type}"]
 
-    queue_card(args.concept, args.definition, args.example, deck, tags)
+    queue_card(args.concept, args.definition, args.scenario, args.example, deck, tags)
 
 
 if __name__ == "__main__":
