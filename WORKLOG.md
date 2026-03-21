@@ -11,6 +11,8 @@ Keep only the last 10 entries. Each entry: date, device, what was done.
 - Deleted deprecated anki_watcher.py, pinned dependencies
 - Improved activity messages for empty/cancelled screenshots
 - 339 tests passing (33 claude-code + 18 production), pushed to GitHub
+- Fixed #4: init.lua crashed on other machines due to hardcoded pancake_hotkey.lua path; now loads optional extras.lua instead
+- Added local server URL (http://localhost:5789) to README
 
 ### 2026-03-20 | Mac
 - Fixed multi-screenshot mode: screencapture rejects dot-prefixed filenames, renamed .multi_ to multi_; fixed race condition and key interference in Hammerspoon
