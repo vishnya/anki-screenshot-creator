@@ -5,6 +5,13 @@ Keep only the last 10 entries. Each entry: date, device, what was done.
 
 ---
 
+### 2026-03-26 | Mac
+- Fixed video timestamp bug: cards showed video duration (end) instead of current playback position
+- Chrome extension now POSTs currentTime to server every 2s (was waiting for a message never sent)
+- Server reads `_extension_timestamp` during card generation instead of unused config field
+- 385 tests passing, pushed to GitHub
+- NOTE: must reload extension in chrome://extensions after this update
+
 ### 2026-03-21 | Mac
 - Added claude-code provider (subscription-based): shells out to `claude` CLI, no API key needed
 - Production hardening: path traversal fix, config input validation, API key redaction in logs, AnkiConnect retry, queue TTL (24h), TOCTOU race fix, /health endpoint, structured logging, named constants
