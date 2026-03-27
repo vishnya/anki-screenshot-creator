@@ -826,6 +826,7 @@ function buildCardLi(c) {
 
   const ts = document.createElement("span");
   ts.className   = "card-ts";
+  ts.dataset.ts  = c.ts;
   ts.textContent = reltime(c.ts);
   top.appendChild(ts);
   li.appendChild(top);
@@ -872,6 +873,13 @@ function reltime(ts) {
   if (secs < 3600) return `${Math.floor(secs / 60)} min ago`;
   return `${Math.floor(secs / 3600)} hr ago`;
 }
+
+// Refresh relative timestamps every 30s
+setInterval(() => {
+  document.querySelectorAll(".card-ts[data-ts]").forEach(el => {
+    el.textContent = reltime(Number(el.dataset.ts));
+  });
+}, 30000);
 
 // ── Activity log ───────────────────────────────────────────────────────────
 function renderActivityLog(entries) {
