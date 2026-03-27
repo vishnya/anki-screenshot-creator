@@ -5,6 +5,9 @@
   "description": "Captures exact YouTube playback timestamps for anki-fox flashcard generation.",
   "permissions": [],
   "host_permissions": ["http://localhost:5789/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["*://*.youtube.com/*"],

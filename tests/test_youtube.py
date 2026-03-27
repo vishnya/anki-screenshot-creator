@@ -1099,13 +1099,21 @@ class TestExtensionFiles:
         content = Path(__file__).parent.parent / "extension" / "content.js"
         assert content.exists()
 
-    def test_content_js_posts_timestamp(self):
+    def test_content_js_sends_timestamp(self):
         from pathlib import Path
         content = Path(__file__).parent.parent / "extension" / "content.js"
         js = content.read_text()
-        assert "api/extension/timestamp" in js
+        assert "anki-fox-timestamp" in js
         assert "currentTime" in js
         assert "setInterval" in js
+
+    def test_background_js_relays_to_server(self):
+        from pathlib import Path
+        bg = Path(__file__).parent.parent / "extension" / "background.js"
+        assert bg.exists()
+        js = bg.read_text()
+        assert "api/extension/timestamp" in js
+        assert "anki-fox-timestamp" in js
 
 
 # ── Integration: Load → Status → Clear lifecycle ─────────────────────────────
