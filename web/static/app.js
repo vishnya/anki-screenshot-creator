@@ -18,7 +18,7 @@ function typesetMath() {
 const MODEL_DEFAULTS = {
   "claude-code": {
     label: "Claude (subscription)", apiKeyLabel: "", apiKeyPlaceholder: "", hasKey: false, hasUrl: false,
-    models: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
+    models: ["sonnet", "opus", "haiku"],
   },
   anthropic: {
     label: "Claude (API key)", apiKeyLabel: "Anthropic API Key", apiKeyPlaceholder: "sk-ant-...", hasKey: true, hasUrl: false,

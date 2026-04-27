@@ -154,6 +154,13 @@ class TestClaudeCodeCLIArgs:
         cmd = call.args[0]
         assert cmd[cmd.index("--model") + 1] == "claude-haiku-4-5"
 
+    def test_uses_alias_model(self):
+        # Aliases like "sonnet" / "opus" / "haiku" are passed through as-is so
+        # the CLI resolves them to the latest model server-side.
+        call = self._capture(self._config(model="sonnet"))
+        cmd = call.args[0]
+        assert cmd[cmd.index("--model") + 1] == "sonnet"
+
     def test_uses_json_output(self):
         call = self._capture(self._config())
         cmd = call.args[0]

@@ -5,6 +5,12 @@ Keep only the last 10 entries. Each entry: date, device, what was done.
 
 ---
 
+### 2026-04-27 | Mac
+- Fixed claude-code (subscription) provider model dropdown: was hardcoded to `claude-sonnet-4-6` etc., wouldn't auto-update when new models shipped
+- Swapped to aliases (`sonnet`, `opus`, `haiku`) so the CLI resolves to the latest model server-side every time — zero maintenance, no API key needed
+- Added test_uses_alias_model; 385 tests passing
+- Verified end-to-end: `claude -p --model sonnet ...` works
+
 ### 2026-04-04 | Mac
 - Added 4 missing ch3 cards: BLEU/ROUGE/F1 worked example, lexical metrics limitation, AI judge capabilities, Chatbot Arena/Elo
 - Quality audit of 64 ch3 cards: fixed 10 dense text blocks (added line breaks + bold terms), 2 jargon issues (tokenization, embeddings)
