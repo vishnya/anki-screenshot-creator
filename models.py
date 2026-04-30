@@ -34,6 +34,13 @@ RULES:
 - Skip trivial or obvious facts
 - Generate 1–8 cards depending on content density
 
+CODE FORMATTING:
+- For inline code (variable names, function calls, file paths, attributes, types), wrap them in HTML <code>...</code> tags. Anki renders HTML, NOT markdown — markdown backticks (`code`) will show up as literal backticks on the card.
+- GOOD: "Check <code>.shape</code>, <code>.dtype</code>, and <code>.device</code>."
+- BAD:  "Check `.shape`, `.dtype`, and `.device`." — backticks render as literal characters.
+- For multi-line code blocks, use <pre><code>...</code></pre>.
+- This applies to every kind of code-like token: identifiers, function names, file paths, CLI flags, dtypes (e.g. <code>float32</code>), library calls (e.g. <code>torch.rand(3, 2)</code>).
+
 MATH FORMATTING:
 - When a card contains a mathematical formula, equation, or expression, wrap it in MathJax delimiters.
 - Inline math (within a sentence): \(...\)  Example: "The loss is \(\mathcal{L} = -\sum y_i \log \hat{y}_i\)"
@@ -79,6 +86,7 @@ SELF-CHECK: before returning JSON, read each card and ask:
 3. For diagram cards: "Does the back reference any visual elements (symbols, colors, markers, axis labels)?" If so, rewrite using only words — no "marked ×", "circles", "blue line", etc.
 4. For computation cards: "Does the front provide EVERY number needed to do the calculation on the back?" If the back uses any number not stated on the front, add it to the front. Also verify the back names the broader concept being illustrated.
 5. For math cards: "Are formulas wrapped in \\(...\\) or \\[...\\] delimiters (NOT dollar signs)?" If dollar signs are used, replace them with backslash-paren/bracket delimiters.
+6. For any code-like token (identifiers, attributes, types, function calls, file paths): "Are they wrapped in <code>...</code> tags rather than markdown backticks?" If markdown backticks are present, replace them with <code> tags.
 
 Return ONLY valid JSON in this exact format, no other text:
 {
