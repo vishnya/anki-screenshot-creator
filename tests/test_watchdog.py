@@ -194,3 +194,44 @@ def test_image_attached_to_all_cards_when_any_is_image(tmp_config, tiny_png):
     assert len(add_note_backs) == 3
     for back in add_note_backs:
         assert "<img" in back, f"Expected image in all cards, but got: {back}"
+
+
+def test_back_is_left_aligned(tmp_config, tiny_png):
+    """Anki centers content by default; cards must be wrapped in a left-align div."""
+    handler = ScreenshotHandler()
+    event = make_event(tiny_png)
+    conf = dict(tmp_config)
+    conf["session_active"] = True
+    conf["deck"] = "TestDeck"
+
+    fake_cards = [
+        {"front": "Q1", "back": "A plain answer", "tags": [], "is_image_card": False},
+        {"front": "Q2", "back": '<div style="text-align: left">already wrapped</div>',
+         "tags": [], "is_image_card": False},
+    ]
+
+    add_note_backs = []
+    def ankiconnect_side_effect(action, **params):
+        if action == "deckNames":
+            return ["TestDeck"]
+        if action == "addNote":
+            add_note_backs.append(params["note"]["fields"]["Back"])
+            return 12345
+        return None
+
+    with patch("flask_server.cfg.load", return_value=conf), \
+         patch("flask_server.models.generate_cards", return_value=fake_cards), \
+         patch("flask_server._ankiconnect", side_effect=ankiconnect_side_effect), \
+         patch("flask_server._push_event"), \
+         patch("time.sleep"):
+        handler.on_created(event)
+
+    assert len(add_note_backs) == 2
+
+    # Plain card got wrapped automatically.
+    assert add_note_backs[0].startswith('<div style="text-align: left">')
+    assert add_note_backs[0].endswith("</div>")
+    assert "A plain answer" in add_note_backs[0]
+
+    # Already-wrapped card is left alone (no double-wrapping).
+    assert add_note_backs[1].count('text-align: left') == 1

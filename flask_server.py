@@ -513,6 +513,11 @@ def _add_cards_to_anki(cards: list[dict], image_path: str, deck: str) -> dict:
             ts_str = youtube.format_timestamp(card["yt_timestamp"])
             back += f'<br><br><a href="{yt_url}">YouTube @ {ts_str}</a>'
 
+        # Anki centers content by default; wrap so cards render left-aligned.
+        # Skip if the model already wrapped (avoid double-wrapping).
+        if "text-align: left" not in back and "text-align:left" not in back:
+            back = f'<div style="text-align: left">{back}</div>'
+
         note = {
             "deckName":  deck,
             "modelName": "Basic",

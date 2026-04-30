@@ -9,7 +9,8 @@ Keep only the last 10 entries. Each entry: date, device, what was done.
 - Fixed code formatting in generated cards: applied_ml deck had 22 cards with literal backticks (e.g. `.shape`) showing up as raw characters because Anki renders HTML, not markdown
 - Converted those 22 cards in place (backups at /tmp/anki_backup_applied_ml.json)
 - Added CODE FORMATTING section to the model prompt + self-check item: model now told to use <code>...</code> HTML tags and avoid markdown backticks
-- New test file test_code_formatting.py with 4 tests verifying the prompt rules; 389 tests passing
+- Auto-wrap card backs in `<div style="text-align: left">` before sending to AnkiConnect — Anki centers by default and the existing rule was being missed; now enforced in code so it can't be forgotten
+- New tests: test_code_formatting.py (4 tests) + test_back_is_left_aligned in test_watchdog.py; 390 tests passing
 
 ### 2026-04-27 | Mac
 - Fixed claude-code (subscription) provider model dropdown: was hardcoded to `claude-sonnet-4-6` etc., wouldn't auto-update when new models shipped
